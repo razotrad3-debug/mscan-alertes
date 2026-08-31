@@ -115,29 +115,35 @@ def format_alert(p) -> str:
     pastille = PASTILLE.get(chain, "⚪")
     intel = getattr(p, "intel", {}) or {}
 
+    # un symbole vide donnerait "**", ce qui casse le Markdown de Telegram
+    titre = _esc(p.symbol) or _esc(p.name) or "?"
+
     lines = [
-        f"{pastille} *{_esc(p.symbol)}* — {_esc(p.grade)}  ({p.score}/{p.max_score})",
-        f"_{_esc(p.name)}_ · {label} · phase {_esc(p.phase)}",
+        f"{pastille} *{titre}* — {_esc(p.grade)}  ({p.score}/{p.max_score})",
+        f"{label} · Phase {_esc(p.phase)}",
         "",
-        f"MC `{_usd(p.market_cap)}`  ·  Liq `{_usd(p.liquidity_usd)}`  ·  24h `{p.chg_h24:+.1f}%`",
+        f"– Market Cap : `{_usd(p.market_cap)}`",
     ]
     if getattr(p, "smart_holders", 0):
         srcs = ", ".join(_esc(s.get("name")) for s in (getattr(p, "sources", []) or [])[:3])
-        lines.append(f"👛 {p.smart_holders} wallets suivis{(' — ' + srcs) if srcs else ''}")
+        lines.append(f"👛 {p.smart_holders} insiders{(' — ' + srcs) if srcs else ''}")
 
-    action = intel.get("action")
     zone, cut_mc = intel.get("zone"), intel.get("cut_mc")
-    if action:
-        lines += ["", f"*{_esc(action)}*"]
-        if zone and zone != "—":
-            lines.append(f"Entry `{_esc(zone)}`  ·  Cut `{_esc(cut_mc)}`")
-        elif cut_mc:
-            lines.append(f"Cut `{_esc(cut_mc)}`")
-        if intel.get("t1"):
-            lines.append(f"T1 `{_usd(intel['t1'])}`  ·  T2 `{_usd(intel.get('t2'))}`"
-                         f"  ·  T3 `{_usd(intel.get('t3'))}`")
-        if intel.get("pourquoi"):
-            lines.append(f"_{_esc(intel['pourquoi'])}_")
+    bloc = []
+    if zone and zone != "—":
+        bloc.append(f"– Entry `{_esc(zone)}`  ·  Cut `{_esc(cut_mc)}`")
+    elif cut_mc:
+        bloc.append(f"– Cut `{_esc(cut_mc)}`")
+    if intel.get("t1"):
+        bloc.append(f"– TP1 : `{_usd(intel['t1'])}`  ·  TP2 `{_usd(intel.get('t2'))}`"
+                    f"  ·  TP3 `{_usd(intel.get('t3'))}`")
+    if bloc:
+        lines += [""] + bloc
+
+    # le raisonnement en dernier : on lit les chiffres d'abord, l'explication ensuite
+    fin_txt = [t for t in (intel.get("action"), intel.get("pourquoi")) if t]
+    if fin_txt:
+        lines += [""] + [_esc(t) for t in fin_txt]
 
     lines += ["", f"`{p.mint}`", f"[DexScreener]({p.dex_url}) · [GMGN]({p.gmgn_url})"]
     return "\n".join(lines)
