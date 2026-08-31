@@ -84,9 +84,9 @@ def _ids() -> list:
 
 
 def _garder_id(mid: int) -> None:
-    """Retient l'identifiant pour pouvoir effacer la conversation plus tard."""
+    """Retient l'identifiant et son jour, pour pouvoir effacer plus tard."""
     ids = _ids()
-    ids.append(mid)
+    ids.append({"id": mid, "jour": time.strftime("%Y-%m-%d")})
     try:
         with open(SENT_IDS_FILE, "w", encoding="utf-8") as f:
             json.dump(ids[-MAX_IDS:], f)
@@ -131,7 +131,8 @@ def clear_chat() -> dict:
     ids = _ids()
     efface = vieux = 0
     restants = []
-    for mid in ids:
+    for e in ids:
+        mid = e["id"] if isinstance(e, dict) else e     # ancien format : entier nu
         try:
             r = requests.post(API.format(token=_token(), method="deleteMessage"),
                               json={"chat_id": _chat(), "message_id": mid}, timeout=10)
@@ -140,7 +141,7 @@ def clear_chat() -> dict:
             else:
                 vieux += 1        # trop ancien, ou deja supprime a la main
         except Exception:
-            restants.append(mid)
+            restants.append(e)
         time.sleep(0.05)
     try:
         with open(SENT_IDS_FILE, "w", encoding="utf-8") as f:
@@ -196,8 +197,18 @@ def format_alert(p) -> str:
     elif cut_mc:
         bloc.append(f"– Cut `{_esc(cut_mc)}`")
     if intel.get("t1"):
-        bloc.append(f"– TP1 : `{_usd(intel['t1'])}`  ·  TP2 `{_usd(intel.get('t2'))}`"
-                    f"  ·  TP3 `{_usd(intel.get('t3'))}`")
+        mc = p.market_cap or 0
+
+        def _tp(v):
+            """Objectif en market cap, avec le gain que ca represente depuis ici."""
+            if not v:
+                return "—"
+            if mc > 0:
+                return f"`{_usd(v)}` (+{(v / mc - 1) * 100:.0f}%)"
+            return f"`{_usd(v)}`"
+
+        bloc.append(f"– TP1 : {_tp(intel['t1'])}  ·  TP2 {_tp(intel.get('t2'))}"
+                    f"  ·  TP3 {_tp(intel.get('t3'))}")
     if bloc:
         lines += [""] + bloc
 
@@ -228,10 +239,21 @@ def notify_new(pairs: List, grades=None) -> int:
     aujourdhui = time.strftime("%Y-%m-%d", time.localtime(now))
     n = 0
 
+    # premier passage de la journee : on efface les alertes de la veille pour
+    # que la conversation ne contienne que ce qui est encore d'actualite.
+    if sent.get("_jour") != aujourdhui:
+        try:
+            purge_veille()
+        except Exception as e:
+            print(f"[telegram] purge : {e}")
+        sent["_jour"] = aujourdhui
+
     for p in pairs:
         if p.grade not in grades:
             continue
         prev = sent.get(p.mint) or {}
+        if not isinstance(prev, dict):
+            prev = {}
         deja = prev.get("jour") == aujourdhui
 
         if deja:
@@ -247,7 +269,8 @@ def notify_new(pairs: List, grades=None) -> int:
 
     # purge des entrees de plus de 7 jours
     vieux = now - 7 * 86400
-    for k in [k for k, v in sent.items() if v.get("at", 0) < vieux]:
+    for k in [k for k, v in sent.items()
+              if isinstance(v, dict) and v.get("at", 0) < vieux]:
         sent.pop(k, None)
     _save(sent)
     if n:
@@ -317,3 +340,41 @@ def status() -> dict:
         "grades": list(ALERT_GRADES),
         "cooldown_h": ALERT_COOLDOWN_H,
     }
+
+
+def purge_veille() -> int:
+    """
+    Efface les messages des jours precedents, en gardant ceux d'aujourd'hui.
+
+    Appelee au premier scan de chaque journee : la conversation ne contient
+    donc jamais que les alertes du jour, sans rien avoir a faire a la main.
+    Ce qui depasse 48 h ne peut plus etre supprime — Telegram l'interdit aux
+    bots — donc on l'oublie simplement.
+    """
+    if not enabled():
+        return 0
+    aujourdhui = time.strftime("%Y-%m-%d")
+    ids = _ids()
+    garde, efface = [], 0
+    for e in ids:
+        if not isinstance(e, dict):
+            continue                       # ancien format sans date : on abandonne
+        if e.get("jour") == aujourdhui:
+            garde.append(e)
+            continue
+        try:
+            r = requests.post(API.format(token=_token(), method="deleteMessage"),
+                              json={"chat_id": _chat(), "message_id": e["id"]}, timeout=10)
+            if r.status_code == 200 and r.json().get("ok"):
+                efface += 1
+        except Exception:
+            pass
+        time.sleep(0.05)
+    try:
+        with open(SENT_IDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(garde, f)
+    except Exception:
+        pass
+    if efface:
+        print(f"[telegram] {efface} alerte(s) de la veille effacee(s)")
+    return efface
