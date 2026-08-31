@@ -15,6 +15,7 @@ Fichier : followed_wallets.txt   (une adresse par ligne + label optionnel)
 """
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple, Dict
 
 import config
@@ -196,40 +197,59 @@ def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
     """
     Retourne :
       wallets : [{address,label,short,buys:[{...coin enrichi...}]}]
-      coins   : [{mint,name,symbol,mc,chg_h1,chg_h24,vol_h24,by:[labels],ts}]  (agrégé)
-    Les coins sur lesquels PLUSIEURS adresses suivies sont entrées remontent en tête.
+      coins   : [{mint,name,symbol,mc,chg_h1,chg_h24,vol_h24,by:[labels],ts}]
+    Les coins sur lesquels PLUSIEURS adresses suivies sont entrees remontent en tete.
+
+    Les lectures on-chain et l'enrichissement se font en parallele : en serie,
+    145 adresses prenaient plusieurs minutes pendant lesquelles l'application
+    restait figee — au point de paraitre en retard sur les alertes.
     """
     followed = load_followed()
     if not followed:
         return {"wallets": [], "coins": [], "available": True, "empty": True}
     if not config.HELIUS_API_KEY:
         return {"wallets": [], "coins": [], "available": False,
-                "reason": "clé Helius requise pour lire les achats on-chain"}
+                "reason": "cle Helius requise pour lire les achats on-chain"}
 
+    t0 = time.time()
+
+    # 1) achats recents de chaque adresse, en parallele
+    def _achats(item):
+        addr, label = item
+        try:
+            return addr, label, recent_buys(addr, hours=hours)[:max_coins_per_wallet]
+        except Exception:
+            return addr, label, []
+
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        brut = list(ex.map(_achats, followed))
+
+    # 2) un seul enrichissement par mint, en parallele lui aussi
+    mints = {b["mint"] for _a, _l, buys in brut for b in buys if b.get("mint")}
     cache: Dict[str, Dict] = {}
-    wallets, agg = [], {}
+    if mints:
+        liste = list(mints)
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            for m, info in zip(liste, ex.map(lambda x: sources_dex.enrich(x) or {}, liste)):
+                cache[m] = info
 
-    for addr, label in followed:
-        log(f"[followed] {label or addr[:8]}")
-        buys = recent_buys(addr, hours=hours)[:max_coins_per_wallet]
+    # 3) agregation
+    wallets, agg = [], {}
+    for addr, label, buys in brut:
         rows = []
         for b in buys:
-            mint = b["mint"]
-            if mint not in cache:
-                cache[mint] = sources_dex.enrich(mint) or {}
-                time.sleep(0.12)
-            info = cache[mint]
+            info = cache.get(b["mint"]) or {}
             if not info:
                 continue
             row = {
-                "mint": mint, "ts": b["ts"], "amount": b["amount"],
+                "mint": b["mint"], "ts": b["ts"], "amount": b.get("amount", 0),
                 "name": info.get("name", "?"), "symbol": info.get("symbol", "?"),
                 "mc": info.get("market_cap", 0), "chg_h1": info.get("chg_h1", 0),
                 "chg_h24": info.get("chg_h24", 0), "vol_h24": info.get("vol_h24", 0),
                 "pair": info.get("pair_address", ""),
             }
             rows.append(row)
-            a = agg.setdefault(mint, {**row, "by": [], "ts": b["ts"]})
+            a = agg.setdefault(b["mint"], {**row, "by": [], "ts": b["ts"]})
             who = label or addr[:4] + "…" + addr[-4:]
             # un trader suivi sur Solana ET sur EVM porte le meme libelle :
             # il ne doit compter qu'une fois dans la convergence.
@@ -240,10 +260,10 @@ def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
                         "short": addr[:4] + "…" + addr[-4:], "buys": rows})
 
     coins = sorted(agg.values(), key=lambda c: (len(c["by"]), c["ts"]), reverse=True)
+    log(f"[followed] {len(followed)} adresses, {len(coins)} coins "
+        f"({time.time() - t0:.0f}s)")
     return {"wallets": wallets, "coins": coins, "available": True, "empty": False}
 
-
-GROUP_RE = re.compile(r"^\[([^\]]{1,24})\]\s*(.*)$")
 
 
 def split_group(label: str):
