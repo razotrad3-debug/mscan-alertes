@@ -105,7 +105,20 @@ def main():
             limite = time.time() + float(sys.argv[sys.argv.index("--minutes") + 1]) * 60
         except (IndexError, ValueError):
             limite = 0.0
-    print(f"MSCAN bot · scan toutes les {interval//60} min · alertes A+ vers Telegram")
+    # on dit tout haut ce qu'on a retrouve : sans ca, un cache perdu passe
+    # inapercu et le bot re-alerte tout comme s'il decouvrait les coins.
+    try:
+        deja = tg._load()
+        coins = {k: v for k, v in deja.items() if not k.startswith("_")}
+        print(f"[memoire] {len(coins)} coin(s) deja alerte(s) en memoire "
+              f"(fenetre {tg.ALERT_COOLDOWN_H} h)")
+        if not coins:
+            print("[memoire] ATTENTION : memoire vide, tout sera re-alerte une fois")
+    except Exception as e:
+        print(f"[memoire] {e}")
+
+    print(f"MSCAN bot · scan toutes les {interval//60} min · "
+          f"alertes {'/'.join(tg.ALERT_GRADES)} vers Telegram")
     tg.send("🟢 *MSCAN bot* demarre.\n"
             "Envoie `/top` a tout moment pour voir les coins du dernier scan — "
             "aucune attente, la reponse est immediate.\n`/help` pour la liste.")

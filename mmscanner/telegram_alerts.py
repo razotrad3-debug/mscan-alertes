@@ -259,7 +259,7 @@ def notify_new(pairs: List, grades=None) -> int:
     now = time.time()
     aujourdhui = time.strftime("%Y-%m-%d", time.localtime(now))
     fenetre = now - ALERT_COOLDOWN_H * 3600
-    n = 0
+    n = supprimees = 0
 
     # premier passage de la journee : on efface les alertes de la veille pour
     # que la conversation ne contienne que ce qui est encore d'actualite.
@@ -281,6 +281,7 @@ def notify_new(pairs: List, grades=None) -> int:
         if recent:
             monte_en_ap = p.grade == "A+" and prev.get("grade") != "A+"
             if not monte_en_ap:
+                supprimees += 1
                 continue          # deja vu dans les 12 h, et rien de neuf
 
         if send(format_alert(p)):
@@ -295,8 +296,9 @@ def notify_new(pairs: List, grades=None) -> int:
               if isinstance(v, dict) and v.get("at", 0) < vieux]:
         sent.pop(k, None)
     _save(sent)
-    if n:
-        print(f"[telegram] {n} alerte(s) envoyee(s)")
+    if n or supprimees:
+        print(f"[telegram] {n} envoyee(s), {supprimees} deja vue(s) dans "
+              f"les {ALERT_COOLDOWN_H} h")
     return n
 
 
