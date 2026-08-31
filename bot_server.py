@@ -5,9 +5,10 @@ Fait tourner le meme moteur que l'application de bureau, mais sans fenetre :
 il scanne en boucle et pousse les setups A+ sur Telegram. C'est ce fichier
 qu'on deploie (Railway / Fly.io / VPS) pour recevoir les alertes PC eteint.
 
-    python bot_server.py            # boucle
-    python bot_server.py --test     # verifie la config Telegram et sort
-    python bot_server.py --once     # un seul scan puis sort
+    python bot_server.py                  # boucle sans fin
+    python bot_server.py --test           # verifie la config Telegram et sort
+    python bot_server.py --once           # un seul scan puis sort
+    python bot_server.py --minutes 340    # boucle puis s'arrete proprement
 """
 import os
 import sys
@@ -91,6 +92,16 @@ def main():
         return 0 if ok else 1
 
     interval = int(os.getenv("SCAN_INTERVAL_SEC") or config.SCAN_INTERVAL_SEC)
+
+    # duree de vie maximale : sur GitHub Actions un job est tue a la limite,
+    # et l'etape de sauvegarde de l'etat ne tourne alors pas. On s'arrete donc
+    # nous-memes, un peu avant, pour rendre la main proprement.
+    limite = 0.0
+    if "--minutes" in sys.argv:
+        try:
+            limite = time.time() + float(sys.argv[sys.argv.index("--minutes") + 1]) * 60
+        except (IndexError, ValueError):
+            limite = 0.0
     print(f"MSCAN bot · scan toutes les {interval//60} min · alertes A+ vers Telegram")
     tg.send("🟢 *MSCAN bot* demarre.\n"
             "Envoie `/top` a tout moment pour voir les coins du dernier scan — "
@@ -123,6 +134,12 @@ def main():
                 pass
         if "--once" in args:
             return 0
+        if limite and time.time() + interval > limite:
+            print("[fin] limite de duree atteinte — arret propre")
+            tg.send("⏸ MSCAN : fenetre de scan terminee, "
+                    "la suivante demarre dans quelques minutes.")
+            return 0
+
         # on dort jusqu'au prochain cycle, sauf si /scan reclame plus tot
         STATE["scan_now"].wait(timeout=interval)
         STATE["scan_now"].clear()

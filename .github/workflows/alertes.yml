@@ -1,21 +1,25 @@
-# Scan MSCAN dans le cloud, alertes A+ sur Telegram.
-# Tourne chez GitHub, donc l'ordinateur peut etre eteint.
+# Scan MSCAN en continu dans le cloud, alertes sur Telegram.
+# L'ordinateur peut rester eteint.
+#
+# Un job GitHub peut durer 6 h. Plutot qu'une execution par scan — ou le
+# planificateur derive de 10 a 30 min sous charge — on lance un job long qui
+# scanne en boucle toutes les 10 min. Couverture quasi continue, et le bot
+# repond aux commandes Telegram pendant toute la fenetre.
 name: Alertes MSCAN
 
 on:
   schedule:
-    # toutes les 30 min. GitHub peut decaler de quelques minutes en periode chargee.
-    - cron: "*/30 * * * *"
-  workflow_dispatch:        # bouton "Run workflow" pour tester tout de suite
+    - cron: "0 */6 * * *"     # relance la fenetre toutes les 6 h
+  workflow_dispatch:
 
 concurrency:
   group: mscan-scan
-  cancel-in-progress: false   # on ne coupe jamais un scan en cours
+  cancel-in-progress: false    # on ne coupe jamais une fenetre en cours
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 350       # 5 h 50 : on rend la main avant la fenetre suivante
     steps:
       - uses: actions/checkout@v4
 
@@ -27,8 +31,8 @@ jobs:
       - name: Installer les dependances
         run: pip install -r requirements-bot.txt
 
-      # l'etat (coins deja alertes, photos de soldes) est conserve d'un run a
-      # l'autre : sans ca, chaque execution re-alerterait les memes coins.
+      # coins deja alertes, caches de pools, photos de soldes : conserves d'une
+      # fenetre a l'autre, sinon chaque relance re-alerterait les memes coins.
       - name: Restaurer l'etat
         uses: actions/cache/restore@v4
         with:
@@ -40,20 +44,20 @@ jobs:
           restore-keys: mscan-etat-
 
       # Les listes de wallets ne sont PAS dans le depot : elles vivent dans le
-      # secret MSCAN_DATA et sont ecrites ici, sur la machine ephemere. Le depot
-      # peut donc etre public (minutes illimitees) sans rien exposer.
+      # secret MSCAN_DATA et sont ecrites ici, sur la machine ephemere.
       - name: Restaurer les donnees privees
         env:
           MSCAN_DATA: ${{ secrets.MSCAN_DATA }}
         run: python pack_data.py unpack
 
-      - name: Scanner et alerter
+      - name: Scanner en continu
         env:
           HELIUS_API_KEY:     ${{ secrets.HELIUS_API_KEY }}
           FOMOSCAN_API_KEYS:  ${{ secrets.FOMOSCAN_API_KEYS }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python bot_server.py --once
+          SCAN_INTERVAL_SEC:  "600"
+        run: python bot_server.py --minutes 340
 
       - name: Sauvegarder l'etat
         if: always()
