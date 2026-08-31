@@ -70,6 +70,30 @@ def _save(d: dict) -> None:
         pass
 
 
+SENT_IDS_FILE = config.path("telegram_msgids.json")
+MAX_IDS = 400          # au-dela on oublie les plus anciens : ils sont de toute
+                       # facon trop vieux pour etre supprimables (limite 48 h)
+
+
+def _ids() -> list:
+    try:
+        with open(SENT_IDS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _garder_id(mid: int) -> None:
+    """Retient l'identifiant pour pouvoir effacer la conversation plus tard."""
+    ids = _ids()
+    ids.append(mid)
+    try:
+        with open(SENT_IDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(ids[-MAX_IDS:], f)
+    except Exception:
+        pass
+
+
 def send(text: str, preview: bool = False) -> bool:
     """Envoie un message Markdown. Retourne True si Telegram a accepte."""
     if not enabled():
@@ -84,10 +108,47 @@ def send(text: str, preview: bool = False) -> bool:
         if r.status_code != 200:
             print(f"[telegram] {r.status_code} {r.text[:160]}")
             return False
+        try:
+            _garder_id(r.json()["result"]["message_id"])
+        except Exception:
+            pass
         return True
     except Exception as e:
         print(f"[telegram] {e}")
         return False
+
+
+def clear_chat() -> dict:
+    """
+    Efface les messages envoyes par le bot.
+
+    Telegram ne laisse un bot supprimer que SES propres messages, et
+    seulement ceux de moins de 48 h : tes commandes et les vieilles alertes
+    restent. On rapporte donc precisement ce qui a pu partir.
+    """
+    if not enabled():
+        return {"efface": 0, "trop_vieux": 0, "restants": 0}
+    ids = _ids()
+    efface = vieux = 0
+    restants = []
+    for mid in ids:
+        try:
+            r = requests.post(API.format(token=_token(), method="deleteMessage"),
+                              json={"chat_id": _chat(), "message_id": mid}, timeout=10)
+            if r.status_code == 200 and r.json().get("ok"):
+                efface += 1
+            else:
+                vieux += 1        # trop ancien, ou deja supprime a la main
+        except Exception:
+            restants.append(mid)
+        time.sleep(0.05)
+    try:
+        with open(SENT_IDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(restants, f)
+    except Exception:
+        pass
+    return {"efface": efface, "trop_vieux": vieux, "restants": len(restants)}
+
 
 
 def _usd(v) -> str:

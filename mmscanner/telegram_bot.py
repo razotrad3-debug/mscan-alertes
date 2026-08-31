@@ -14,6 +14,7 @@ Commandes :
   /coin <adresse>   analyse d'un token precis
   /etat      date du dernier scan, nb de paires
   /scan      force un nouveau scan (2 a 5 min)
+  /clear     efface les messages du bot dans la conversation
 """
 import time
 from typing import Callable, Dict, List
@@ -34,7 +35,8 @@ HELP = (
     "`/wallets` les smart wallets les mieux notes\n"
     "`/coin <adresse>` analyse d'un token\n"
     "`/etat` date du dernier scan\n"
-    "`/scan` force un scan (2-5 min)"
+    "`/scan` force un scan (2-5 min)\n"
+    "`/clear` efface les messages du bot"
 )
 
 
@@ -111,6 +113,15 @@ def handle(text: str, pairs: List, rescan: Callable = None, last_scan: float = 0
         if not p:
             return "Token introuvable."
         return tg.format_alert(p)
+
+    if cmd in ("clear", "vider", "nettoyer"):
+        r = tg.clear_chat()
+        bout = [f"🧹 {r['efface']} message(s) effacé(s)."]
+        if r["trop_vieux"]:
+            bout.append(f"{r['trop_vieux']} trop anciens — Telegram interdit "
+                        "aux bots de supprimer au-delà de 48 h.")
+        bout.append("Tes propres messages restent : un bot ne peut effacer que les siens.")
+        return " ".join(bout)
 
     if cmd == "scan":
         if not rescan:
