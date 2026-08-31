@@ -130,7 +130,7 @@ def build_intel(p: Pair) -> Dict:
     if phase == "Running":
         action = "Attendre le pullback"
         zone = f"{_fmt(poi_lo)}–{_fmt(poi_hi)}" if (poi_lo and poi_hi) else f"-20 a -30% du MC"
-        pourquoi = f"Deja +{p.chg_h1:.0f}% en 1H — chaser ici, c'est acheter le haut."
+        pourquoi = f"Deja +{p.chg_h1:.0f}% en 1H — chaser ici, c'est acheter le top."
     elif phase == "Retest":
         action = "Attendre le reclaim"
         zone = _fmt(mc * 1.08)

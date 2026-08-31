@@ -236,7 +236,8 @@ def format_alert(p) -> str:
     if fin_txt:
         lines += [""] + [_esc(t) for t in fin_txt]
 
-    lines += ["", f"`{p.mint}`", f"[DexScreener]({p.dex_url}) · [GMGN]({p.gmgn_url})"]
+    # pas d'adresse de contrat en clair : les deux liens y menent deja
+    lines += ["", f"[DexScreener]({p.dex_url}) · [GMGN]({p.gmgn_url})"]
     return "\n".join(lines)
 
 
