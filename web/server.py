@@ -1092,7 +1092,7 @@ async function tick(){try{
  for(var i=0;i<rows.length;i++)if(!seen[rows[i].getAttribute('data-mint')]){location.reload();return;}
 }catch(e){}}
 var CHAIN_COLORS={all:['#d4af37','#e8c86a'],solana:['#9945FF','#B980FF'],
- robinhood:['#CCFF00','#E2FF66'],ethereum:['#627EEA','#8DA2F0'],base:['#3B7DFF','#7BA8FF']};
+ robinhood:['#CCFF00','#E2FF66'],ethereum:['#627EEA','#8DA2F0'],base:['#4FA9FF','#8FCEFF']};
 function paint(c){var v=CHAIN_COLORS[c]||CHAIN_COLORS.all,r=document.documentElement.style;
  r.setProperty('--gold',v[0]); r.setProperty('--gold-2',v[1]);
  r.setProperty('--gold-dim','color-mix(in srgb,'+v[0]+' 14%,transparent)');
@@ -1181,7 +1181,7 @@ _H = ("<!doctype html><html lang=fr><head><meta charset=utf-8>"
       + _FAVICON
       + "<script>(function(){var C={solana:['#9945FF','#B980FF'],"
         "robinhood:['#CCFF00','#E2FF66'],ethereum:['#627EEA','#8DA2F0'],"
-        "base:['#3B7DFF','#7BA8FF']};try{var c=sessionStorage.getItem('mscan_chain');"
+        "base:['#4FA9FF','#8FCEFF']};try{var c=sessionStorage.getItem('mscan_chain');"
         "var v=C[c];if(v){var r=document.documentElement.style;"
         "r.setProperty('--gold',v[0]);r.setProperty('--gold-2',v[1]);"
         "r.setProperty('--gold-dim','color-mix(in srgb,'+v[0]+' 14%,transparent)');"

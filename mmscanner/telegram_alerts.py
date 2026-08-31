@@ -24,7 +24,9 @@ PASTILLE = {
     "solana":    "🟣",   # violet
     "robinhood": "🟢",   # vert fluo
     "ethereum":  "🔵",   # bleu
-    "base":      "🟦",   # bleu clair (carre, pour le distinguer d'ETH)
+    # il n'existe qu'un seul rond bleu en emoji : Base prend donc le coeur
+    # bleu clair, seule forme reellement plus claire que le bleu d'Ethereum.
+    "base":      "🩵",
 }
 STATE_FILE = config.path("telegram_sent.json")
 ALERT_COOLDOWN_H = 12          # un meme coin n'est pas realerte avant ce delai

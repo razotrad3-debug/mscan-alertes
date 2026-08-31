@@ -48,7 +48,7 @@ CHAIN_META = {
     "solana":   {"label": "Solana",    "color": "#9945FF"},
     "robinhood":{"label": "Robinhood", "color": "#CCFF00"},
     "ethereum": {"label": "Ethereum",  "color": "#627EEA"},
-    "base":     {"label": "Base",      "color": "#3B7DFF"},
+    "base":     {"label": "Base",      "color": "#4FA9FF"},
 }
 
 # ── Filtres MikeMike (ses params DexScreener) ─────────────
