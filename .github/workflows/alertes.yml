@@ -39,6 +39,7 @@ jobs:
           path: |
             telegram_sent.json
             telegram_msgids.json
+            insider_seen.json
             pool_cache.json
             flow_snapshots
           key: mscan-etat-${{ github.run_id }}
@@ -67,6 +68,7 @@ jobs:
           path: |
             telegram_sent.json
             telegram_msgids.json
+            insider_seen.json
             pool_cache.json
             flow_snapshots
           key: mscan-etat-${{ github.run_id }}

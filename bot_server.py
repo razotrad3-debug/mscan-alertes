@@ -25,6 +25,7 @@ import config
 from mmscanner import engine
 from mmscanner import telegram_alerts as tg
 from mmscanner import telegram_bot
+from mmscanner import insider_watch
 
 # dernier scan garde en memoire : c'est ce que les commandes Telegram lisent,
 # pour repondre instantanement sans relancer quoi que ce soit.
@@ -122,6 +123,27 @@ def main():
     tg.send("🟢 *MSCAN bot* demarre.\n"
             "Envoie `/top` a tout moment pour voir les coins du dernier scan — "
             "aucune attente, la reponse est immediate.\n`/help` pour la liste.")
+
+    # ── veille rapide sur les insiders ──────────────────────────────
+    # Le scan complet passe par les classements volume : il voit un coin une
+    # fois qu'il a bouge. Cette veille regarde les wallets suivis toutes les
+    # 60 s et signale l'entree elle-meme, donc avant le classement.
+    def _veille():
+        try:
+            insider_watch.poll(amorcage=True)   # 1er tour : on note sans alerter
+        except Exception as e:
+            print(f"[insider] amorcage : {e}")
+        while True:
+            debut = time.time()
+            try:
+                insider_watch.poll()
+            except Exception as e:
+                print(f"[insider] {e}")
+            # cadence de 60 s quoi qu'il arrive, meme si le tour a ete long
+            time.sleep(max(5, 60 - (time.time() - debut)))
+
+    if "--once" not in args:
+        threading.Thread(target=_veille, daemon=True, name="insider").start()
 
     # thread de consultation : repond aux commandes pendant que le scan tourne
     def _listen():

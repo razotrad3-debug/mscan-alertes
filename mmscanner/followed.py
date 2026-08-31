@@ -266,6 +266,10 @@ def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
 
 
 
+# convention d'etiquette : "[Dabal] pseudo" -> groupe "Dabal"
+GROUP_RE = re.compile(r"^\[([^\]]{1,24})\]\s*(.*)$")
+
+
 def split_group(label: str):
     """
     'label' -> (groupe, reste).
