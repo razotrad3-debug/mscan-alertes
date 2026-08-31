@@ -18,6 +18,14 @@ import requests
 import config
 
 API = "https://api.telegram.org/bot{token}/{method}"
+
+# Telegram ne colore pas le texte : la pastille porte la couleur de la chaine.
+PASTILLE = {
+    "solana":    "🟣",   # violet
+    "robinhood": "🟢",   # vert fluo
+    "ethereum":  "🔵",   # bleu
+    "base":      "🟦",   # bleu clair (carre, pour le distinguer d'ETH)
+}
 STATE_FILE = config.path("telegram_sent.json")
 ALERT_COOLDOWN_H = 12
 def _grades_alerte():
@@ -104,65 +112,81 @@ def _esc(s) -> str:
 def format_alert(p) -> str:
     chain = (getattr(p, "chain", "") or "solana").lower()
     label = config.CHAIN_META.get(chain, {}).get("label", chain.title())
+    pastille = PASTILLE.get(chain, "⚪")
     intel = getattr(p, "intel", {}) or {}
 
     lines = [
-        f"🎯 *{_esc(p.symbol)}* — {_esc(p.grade)}  ({p.score}/{p.max_score})",
+        f"{pastille} *{_esc(p.symbol)}* — {_esc(p.grade)}  ({p.score}/{p.max_score})",
         f"_{_esc(p.name)}_ · {label} · phase {_esc(p.phase)}",
         "",
-        f"MC `{_usd(p.market_cap)}`  ·  Liq `{_usd(p.liquidity_usd)}`",
-        f"Vol 24h `{_usd(p.vol_h24)}`  ·  24h `{p.chg_h24:+.1f}%`",
+        f"MC `{_usd(p.market_cap)}`  ·  Liq `{_usd(p.liquidity_usd)}`  ·  24h `{p.chg_h24:+.1f}%`",
     ]
-    if getattr(p, "rsi_note", ""):
-        lines.append(f"RSI {_esc(p.rsi_note)}")
     if getattr(p, "smart_holders", 0):
         srcs = ", ".join(_esc(s.get("name")) for s in (getattr(p, "sources", []) or [])[:3])
         lines.append(f"👛 {p.smart_holders} wallets suivis{(' — ' + srcs) if srcs else ''}")
 
-    entry, t1, cut = intel.get("entry"), intel.get("t1"), intel.get("cut")
-    if entry or t1 or cut:
-        lines.append("")
-        if entry:
-            lines.append(f"Entry `{entry}`")
-        if t1:
-            lines.append(f"T1 `{t1}`" + (f"  ·  T2 `{intel['t2']}`" if intel.get("t2") else ""))
-        if cut:
-            lines.append(f"Cut `{cut}`")
+    action = intel.get("action")
+    zone, cut_mc = intel.get("zone"), intel.get("cut_mc")
+    if action:
+        lines += ["", f"*{_esc(action)}*"]
+        if zone and zone != "—":
+            lines.append(f"Entry `{_esc(zone)}`  ·  Cut `{_esc(cut_mc)}`")
+        elif cut_mc:
+            lines.append(f"Cut `{_esc(cut_mc)}`")
+        if intel.get("t1"):
+            lines.append(f"T1 `{_usd(intel['t1'])}`  ·  T2 `{_usd(intel.get('t2'))}`"
+                         f"  ·  T3 `{_usd(intel.get('t3'))}`")
+        if intel.get("pourquoi"):
+            lines.append(f"_{_esc(intel['pourquoi'])}_")
 
     lines += ["", f"`{p.mint}`", f"[DexScreener]({p.dex_url}) · [GMGN]({p.gmgn_url})"]
     return "\n".join(lines)
 
 
-def notify_new(pairs: List, grades=ALERT_GRADES) -> int:
+
+def notify_new(pairs: List, grades=None) -> int:
     """
-    Alerte les paires du grade voulu pas encore signalees.
-    Retourne le nombre de messages envoyes.
+    Alerte les paires du grade voulu, une seule fois par jour et par coin.
+
+    Un coin deja signale dans la journee ne repasse que s'il monte en A+ :
+    c'est une information neuve, tout le reste serait du bruit. Le compteur
+    se remet a zero au changement de jour, pas apres N heures glissantes,
+    pour que la regle soit lisible ("je l'ai deja vu aujourd'hui").
     """
     if not enabled():
         return 0
+    grades = grades or ALERT_GRADES
     sent = _load()
     now = time.time()
-    cutoff = now - ALERT_COOLDOWN_H * 3600
+    aujourdhui = time.strftime("%Y-%m-%d", time.localtime(now))
     n = 0
+
     for p in pairs:
         if p.grade not in grades:
             continue
-        prev = sent.get(p.mint)
-        # deja alerte recemment au meme grade (ou mieux) -> on passe
-        if prev and prev.get("at", 0) > cutoff and prev.get("grade") == p.grade:
-            continue
+        prev = sent.get(p.mint) or {}
+        deja = prev.get("jour") == aujourdhui
+
+        if deja:
+            monte_en_ap = p.grade == "A+" and prev.get("grade") != "A+"
+            if not monte_en_ap:
+                continue          # deja vu aujourd'hui, et rien de neuf
+
         if send(format_alert(p)):
-            sent[p.mint] = {"at": now, "grade": p.grade, "symbol": p.symbol}
+            sent[p.mint] = {"at": now, "jour": aujourdhui,
+                            "grade": p.grade, "symbol": p.symbol}
             n += 1
-            time.sleep(0.4)          # limite Telegram : ~30 msg/s, on reste large
+            time.sleep(0.4)       # limite Telegram : ~30 msg/s, on reste large
+
     # purge des entrees de plus de 7 jours
-    old = now - 7 * 86400
-    for k in [k for k, v in sent.items() if v.get("at", 0) < old]:
+    vieux = now - 7 * 86400
+    for k in [k for k, v in sent.items() if v.get("at", 0) < vieux]:
         sent.pop(k, None)
     _save(sent)
     if n:
-        print(f"[telegram] {n} alerte(s) A+ envoyee(s)")
+        print(f"[telegram] {n} alerte(s) envoyee(s)")
     return n
+
 
 
 def test() -> bool:
