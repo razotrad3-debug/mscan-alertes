@@ -27,7 +27,7 @@ PASTILLE = {
     "base":      "🟦",   # bleu clair (carre, pour le distinguer d'ETH)
 }
 STATE_FILE = config.path("telegram_sent.json")
-ALERT_COOLDOWN_H = 12
+ALERT_COOLDOWN_H = 12          # un meme coin n'est pas realerte avant ce delai
 def _grades_alerte():
     """
     Grades qui declenchent une alerte, derives de config.ALERT_MIN_GRADE.
@@ -52,6 +52,25 @@ def _chat() -> str:
 
 def enabled() -> bool:
     return bool(_token() and _chat())
+
+
+def alerts_enabled() -> bool:
+    """
+    Est-ce a CE processus d'envoyer les alertes ?
+
+    Le scan tourne a deux endroits : l'application de bureau et le serveur
+    cloud. Si les deux alertent, chacun avec son propre fichier de memoire,
+    le meme coin part deux fois. Le cloud tourne en continu, c'est donc lui
+    l'emetteur ; l'application de bureau se tait, sauf si on lui demande
+    explicitement le contraire (MSCAN_SEND_ALERTS=1).
+    """
+    v = (os.getenv("MSCAN_SEND_ALERTS") or "").strip().lower()
+    if v in ("1", "true", "oui", "yes"):
+        return True
+    if v in ("0", "false", "non", "no"):
+        return False
+    # par defaut : seul le runner sans interface alerte
+    return bool(os.getenv("MSCAN_HEADLESS"))
 
 
 def _load() -> dict:
@@ -224,19 +243,21 @@ def format_alert(p) -> str:
 
 def notify_new(pairs: List, grades=None) -> int:
     """
-    Alerte les paires du grade voulu, une seule fois par jour et par coin.
+    Alerte les paires du grade voulu, au plus une fois toutes les 12 h.
 
-    Un coin deja signale dans la journee ne repasse que s'il monte en A+ :
-    c'est une information neuve, tout le reste serait du bruit. Le compteur
-    se remet a zero au changement de jour, pas apres N heures glissantes,
-    pour que la regle soit lisible ("je l'ai deja vu aujourd'hui").
+    Un coin deja signale dans la fenetre ne repasse que s'il monte en A+ :
+    c'est une information neuve, tout le reste serait du bruit.
+
+    L'emetteur est unique (voir `alerts_enabled`) : deux scanners qui
+    alerteraient chacun avec sa propre memoire enverraient tout en double.
     """
-    if not enabled():
+    if not enabled() or not alerts_enabled():
         return 0
     grades = grades or ALERT_GRADES
     sent = _load()
     now = time.time()
     aujourdhui = time.strftime("%Y-%m-%d", time.localtime(now))
+    fenetre = now - ALERT_COOLDOWN_H * 3600
     n = 0
 
     # premier passage de la journee : on efface les alertes de la veille pour
@@ -251,15 +272,15 @@ def notify_new(pairs: List, grades=None) -> int:
     for p in pairs:
         if p.grade not in grades:
             continue
-        prev = sent.get(p.mint) or {}
+        prev = sent.get(p.mint)
         if not isinstance(prev, dict):
             prev = {}
-        deja = prev.get("jour") == aujourdhui
 
-        if deja:
+        recent = prev.get("at", 0) > fenetre
+        if recent:
             monte_en_ap = p.grade == "A+" and prev.get("grade") != "A+"
             if not monte_en_ap:
-                continue          # deja vu aujourd'hui, et rien de neuf
+                continue          # deja vu dans les 12 h, et rien de neuf
 
         if send(format_alert(p)):
             sent[p.mint] = {"at": now, "jour": aujourdhui,

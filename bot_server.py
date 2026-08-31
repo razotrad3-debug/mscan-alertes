@@ -18,6 +18,9 @@ import traceback
 
 sys.stdout.reconfigure(line_buffering=True)
 
+# c'est ce processus qui envoie les alertes (voir telegram_alerts.alerts_enabled)
+os.environ.setdefault("MSCAN_HEADLESS", "1")
+
 import config
 from mmscanner import engine
 from mmscanner import telegram_alerts as tg
