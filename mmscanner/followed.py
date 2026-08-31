@@ -1,0 +1,333 @@
+"""
+Adresses suivies (KOL / influenceurs / wallets repérés sur FOMO & co).
+
+Différence avec discover_wallets :
+  · discover_wallets  = découverte AUTOMATIQUE par récurrence sur les pumps
+  · followed          = liste CUREE À LA MAIN, que tu choisis de suivre
+
+Pour chaque adresse suivie, on lit ses achats récents on-chain (Helius) et on
+affiche les coins où elle vient d'entrer, avec le lien vers le chart / l'analyse.
+
+Signal fort (méthode MikeMike) : quand PLUSIEURS adresses suivies entrent sur
+le MÊME coin dans une fenêtre courte -> convergence, à regarder en priorité.
+
+Fichier : followed_wallets.txt   (une adresse par ligne + label optionnel)
+"""
+import re
+import time
+from typing import List, Tuple, Dict
+
+import config
+from . import helius_tx, sources_dex
+from . import sources_evm
+
+FOLLOWED_FILE = config.FOLLOWED_FILE
+
+# quote tokens : ce qu'on dépense, pas ce qu'on achète
+QUOTE_MINTS = {
+    "So11111111111111111111111111111111111111112",   # WSOL
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",  # USDT
+}
+
+
+def load_followed() -> List[Tuple[str, str]]:
+    """Retourne [(adresse, label), ...] depuis followed_wallets.txt."""
+    out = []
+    try:
+        with open(FOLLOWED_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split(None, 1)
+                addr = parts[0]
+                label = parts[1].strip() if len(parts) > 1 else ""
+                out.append((addr, label))
+    except FileNotFoundError:
+        pass
+    return out
+
+
+BASE58_RE = re.compile(r"[1-9A-HJ-NP-Za-km-z]{32,44}")
+
+
+def parse_addresses(raw_text: str):
+    """
+    Extrait les adresses de n'importe quel format collé par l'utilisateur.
+
+    Reconnaît les adresses Solana (base58) et EVM (0x… — Ethereum, Base).
+
+    Accepte : une par ligne, séparées par virgules/points-virgules/espaces,
+    avec ou sans label, collées depuis une URL (solscan, gmgn, dexscreener,
+    birdeye...), avec des puces ou de la ponctuation autour.
+    """
+    out, seen = [], set()
+    for line in (raw_text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        found = sources_evm.EVM_RE_ANY.findall(line) + BASE58_RE.findall(line)
+        if not found:
+            continue
+        # tout ce qui n'est pas une adresse sur la ligne sert de label
+        label = line
+        for f in found:
+            label = label.replace(f, " ")
+        # on retire les morceaux d'URL et la ponctuation de séparation
+        label = re.sub(r"https?://\S+|[/,;|>\-•]+", " ", label)
+        label = re.sub(r"\s+", " ", label)
+        # on ne garde que du texte lisible (lettres, chiffres, espaces, . _ #)
+        # on garde les crochets : ils portent le groupe, ex "[Dabal] pseudo"
+        label = re.sub(r"[^\w .#\[\]À-ſ-]+", " ", label, flags=re.UNICODE)
+        label = re.sub(r"\s+", " ", label).strip(" :=-_.")
+        for addr in found:
+            if addr in seen:
+                continue
+            seen.add(addr)
+            out.append((addr, label[:40]))
+    return out
+
+
+BACKUP_FILE = config.path("followed_wallets.bak")
+
+
+def save_followed(raw_text: str) -> int:
+    """
+    Ecrit la liste d'adresses saisie dans l'interface. Retourne le nb d'adresses.
+
+    Le formulaire REMPLACE la liste entiere : une saisie partielle effacerait
+    des dizaines d'adresses patiemment collectees. On copie donc l'etat
+    precedent dans followed_wallets.bak avant d'ecrire, recuperable par
+    restore_followed().
+    """
+    rows = parse_addresses(raw_text)
+    anciennes = load_followed()
+
+    if anciennes:
+        try:
+            with open(BACKUP_FILE, "w", encoding="utf-8") as f:
+                f.write("\n".join(f"{a}  {l}".rstrip() for a, l in anciennes) + "\n")
+        except Exception:
+            pass
+
+    header = ("# Adresses suivies (KOL / influenceurs / wallets reperes)" + "\n"
+              + "# Une adresse par ligne, label optionnel apres un espace." + "\n"
+              + "# Version precedente conservee dans followed_wallets.bak" + "\n" + "\n")
+    body = "\n".join(f"{a}  {l}".rstrip() for a, l in rows)
+    with open(FOLLOWED_FILE, "w", encoding="utf-8") as f:
+        f.write(header + body + ("\n" if rows else ""))
+    return len(rows)
+
+
+def restore_followed() -> int:
+    """Remet la liste telle qu'elle etait avant la derniere sauvegarde."""
+    try:
+        raw = open(BACKUP_FILE, "r", encoding="utf-8").read()
+    except FileNotFoundError:
+        return 0
+    rows = parse_addresses(raw)
+    if not rows:
+        return 0
+    with open(FOLLOWED_FILE, "w", encoding="utf-8") as f:
+        f.write("# Adresses suivies (restaurees depuis la sauvegarde)" + "\n" + "\n"
+                + "\n".join(f"{a}  {l}".rstrip() for a, l in rows) + "\n")
+    return len(rows)
+
+def append_followed(rows) -> int:
+    """Ajoute des (adresse, label) a la liste sans ecraser l'existante."""
+    existing = load_followed()
+    have = {a for a, _ in existing}
+    added = [(a, l) for a, l in rows if a and a not in have]
+    if not added:
+        return 0
+    lines = [f"{a}  {l}".rstrip() for a, l in existing + added]
+    save_followed("\n".join(lines))
+    return len(added)
+
+
+def raw_followed() -> str:
+    """Contenu éditable (sans les commentaires) pour pré-remplir le formulaire."""
+    return "\n".join(f"{a}  {l}".rstrip() for a, l in load_followed())
+
+
+def recent_buys(address: str, hours: float = 72, max_tx: int = 120) -> List[Dict]:
+    """
+    Achats récents d'un wallet : [{mint, amount, ts}] du plus récent au plus ancien.
+
+    L'adresse dit d'elle-même sur quelle chaîne aller la lire : une adresse
+    base58 part chez Helius (Solana), une adresse 0x… chez les explorateurs
+    EVM (Ethereum puis Base).
+    """
+    if sources_evm.is_evm(address):
+        rows = []
+        for chain in ("ethereum", "base"):
+            for r in sources_evm.recent_buys(address, chain, hours=hours):
+                rows.append({**r, "chain": chain, "tx": 1})
+            if rows:            # trouvé sur cette chaîne : inutile d'aller plus loin
+                break
+        return rows
+    if not config.HELIUS_API_KEY:
+        return []
+    cutoff = time.time() - hours * 3600
+    txs = helius_tx._enhanced(address, "SWAP", limit=min(max_tx, 100))
+    buys: Dict[str, Dict] = {}
+    for tx in txs:
+        ts = tx.get("timestamp", 0) or 0
+        if ts < cutoff:
+            continue
+        for tt in tx.get("tokenTransfers", []) or []:
+            mint = tt.get("mint")
+            if not mint or mint in QUOTE_MINTS:
+                continue
+            if tt.get("toUserAccount") != address:
+                continue
+            amt = float(tt.get("tokenAmount") or 0)
+            if amt <= 0:
+                continue
+            rec = buys.setdefault(mint, {"mint": mint, "amount": 0.0, "ts": ts, "tx": 0})
+            rec["amount"] += amt
+            rec["ts"] = max(rec["ts"], ts)
+            rec["tx"] += 1
+    return sorted(buys.values(), key=lambda b: b["ts"], reverse=True)
+
+
+def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
+    """
+    Retourne :
+      wallets : [{address,label,short,buys:[{...coin enrichi...}]}]
+      coins   : [{mint,name,symbol,mc,chg_h1,chg_h24,vol_h24,by:[labels],ts}]  (agrégé)
+    Les coins sur lesquels PLUSIEURS adresses suivies sont entrées remontent en tête.
+    """
+    followed = load_followed()
+    if not followed:
+        return {"wallets": [], "coins": [], "available": True, "empty": True}
+    if not config.HELIUS_API_KEY:
+        return {"wallets": [], "coins": [], "available": False,
+                "reason": "clé Helius requise pour lire les achats on-chain"}
+
+    cache: Dict[str, Dict] = {}
+    wallets, agg = [], {}
+
+    for addr, label in followed:
+        log(f"[followed] {label or addr[:8]}")
+        buys = recent_buys(addr, hours=hours)[:max_coins_per_wallet]
+        rows = []
+        for b in buys:
+            mint = b["mint"]
+            if mint not in cache:
+                cache[mint] = sources_dex.enrich(mint) or {}
+                time.sleep(0.12)
+            info = cache[mint]
+            if not info:
+                continue
+            row = {
+                "mint": mint, "ts": b["ts"], "amount": b["amount"],
+                "name": info.get("name", "?"), "symbol": info.get("symbol", "?"),
+                "mc": info.get("market_cap", 0), "chg_h1": info.get("chg_h1", 0),
+                "chg_h24": info.get("chg_h24", 0), "vol_h24": info.get("vol_h24", 0),
+                "pair": info.get("pair_address", ""),
+            }
+            rows.append(row)
+            a = agg.setdefault(mint, {**row, "by": [], "ts": b["ts"]})
+            who = label or addr[:4] + "…" + addr[-4:]
+            # un trader suivi sur Solana ET sur EVM porte le meme libelle :
+            # il ne doit compter qu'une fois dans la convergence.
+            if who not in a["by"]:
+                a["by"].append(who)
+            a["ts"] = max(a["ts"], b["ts"])
+        wallets.append({"address": addr, "label": label,
+                        "short": addr[:4] + "…" + addr[-4:], "buys": rows})
+
+    coins = sorted(agg.values(), key=lambda c: (len(c["by"]), c["ts"]), reverse=True)
+    return {"wallets": wallets, "coins": coins, "available": True, "empty": False}
+
+
+GROUP_RE = re.compile(r"^\[([^\]]{1,24})\]\s*(.*)$")
+
+
+def split_group(label: str):
+    """
+    'label' -> (groupe, reste).
+
+    Convention : "[Dabal] pseudo" -> groupe "Dabal".
+    Sans crochets, on deduit un groupe par defaut a partir du contenu.
+    """
+    label = (label or "").strip()
+    m = GROUP_RE.match(label)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    low = label.lower()
+    if low.startswith("early_x") or "early_x" in low:
+        return "on-chain", label
+    if "top" in low and any(w in low for w in ("7d", "24h", "30d")):
+        return "Top FOMO", label
+    return "Suivi", label
+
+
+def tracked_registry():
+    """
+    Tous les wallets suivis, avec leur ORIGINE — pour repondre a
+    "ce coin vient d'ou ?" sur le radar.
+
+    Retour : {adresse: {"label": str, "origin": "suivi"|"onchain"}}
+      · "suivi"   -> TES adresses (KOL FOMO, clans...) : le label est le pseudo
+      · "onchain" -> detecte automatiquement par recurrence sur les pumps
+    """
+    import config as _c
+    reg = {}
+    # 1) detectes automatiquement
+    try:
+        with open(_c.SMART_WALLETS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split(None, 1)
+                lab = (parts[1] if len(parts) > 1 else "")[:60]
+                reg[parts[0]] = {"label": lab, "origin": "onchain",
+                                 "group": "on-chain"}
+    except Exception:
+        pass
+    # 2) les tiennes ecrasent : une adresse que TU suis est d'abord la tienne
+    for addr, label in load_followed():
+        grp, rest = split_group(label)
+        reg[addr] = {"label": rest or label or "suivi", "origin": "suivi", "group": grp}
+    return reg
+
+
+def tracked_lines():
+    """Format attendu par le scanner : 'adresse  label'."""
+    return [f"{a}  {v['label']}".rstrip() for a, v in tracked_registry().items()]
+
+
+BUYS_CACHE = config.path("followed_buys.json")
+
+
+def save_buys(data: dict) -> None:
+    """Ecrit le resultat du dernier scan d'adresses suivies."""
+    try:
+        import json
+        with open(BUYS_CACHE, "w", encoding="utf-8") as f:
+            json.dump({"at": time.time(), "coins": data.get("coins", [])}, f)
+    except Exception:
+        pass
+
+
+def recent_mints(hours: float = 48) -> list:
+    """
+    Mints sur lesquels une adresse suivie est entree recemment.
+
+    Ces coins entrent dans le scan comme candidats a part entiere : c'est le
+    signal le plus direct qu'on ait, il ne doit pas dependre du fait que le
+    coin soit assez gros pour ressortir de la decouverte generique.
+    """
+    try:
+        import json
+        with open(BUYS_CACHE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return []
+    limite = time.time() - hours * 3600
+    return [c["mint"] for c in d.get("coins", [])
+            if c.get("mint") and (c.get("ts") or 0) >= limite]

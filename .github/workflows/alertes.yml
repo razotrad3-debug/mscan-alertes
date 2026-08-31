@@ -1,0 +1,66 @@
+# Scan MSCAN dans le cloud, alertes A+ sur Telegram.
+# Tourne chez GitHub, donc l'ordinateur peut etre eteint.
+name: Alertes MSCAN
+
+on:
+  schedule:
+    # toutes les 30 min. GitHub peut decaler de quelques minutes en periode chargee.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:        # bouton "Run workflow" pour tester tout de suite
+
+concurrency:
+  group: mscan-scan
+  cancel-in-progress: false   # on ne coupe jamais un scan en cours
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installer les dependances
+        run: pip install -r requirements-bot.txt
+
+      # l'etat (coins deja alertes, photos de soldes) est conserve d'un run a
+      # l'autre : sans ca, chaque execution re-alerterait les memes coins.
+      - name: Restaurer l'etat
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            telegram_sent.json
+            pool_cache.json
+            flow_snapshots
+          key: mscan-etat-${{ github.run_id }}
+          restore-keys: mscan-etat-
+
+      # Les listes de wallets ne sont PAS dans le depot : elles vivent dans le
+      # secret MSCAN_DATA et sont ecrites ici, sur la machine ephemere. Le depot
+      # peut donc etre public (minutes illimitees) sans rien exposer.
+      - name: Restaurer les donnees privees
+        env:
+          MSCAN_DATA: ${{ secrets.MSCAN_DATA }}
+        run: python pack_data.py unpack
+
+      - name: Scanner et alerter
+        env:
+          HELIUS_API_KEY:     ${{ secrets.HELIUS_API_KEY }}
+          FOMOSCAN_API_KEYS:  ${{ secrets.FOMOSCAN_API_KEYS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot_server.py --once
+
+      - name: Sauvegarder l'etat
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            telegram_sent.json
+            pool_cache.json
+            flow_snapshots
+          key: mscan-etat-${{ github.run_id }}
