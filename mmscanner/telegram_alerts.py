@@ -203,18 +203,15 @@ def format_alert(p) -> str:
         f"{pastille} *{titre}* — {_esc(p.grade)}  ({p.score}/{p.max_score})",
         f"{label} · Phase {_esc(p.phase)}",
         "",
-        f"– Market Cap : `{_usd(p.market_cap)}`",
+        f"- Market Cap : `{_usd(p.market_cap)}`",
     ]
-    if getattr(p, "smart_holders", 0):
-        srcs = ", ".join(_esc(s.get("name")) for s in (getattr(p, "sources", []) or [])[:3])
-        lines.append(f"👛 {p.smart_holders} insiders{(' — ' + srcs) if srcs else ''}")
 
     zone, cut_mc = intel.get("zone"), intel.get("cut_mc")
     bloc = []
     if zone and zone != "—":
-        bloc.append(f"– Entry `{_esc(zone)}`  ·  Cut `{_esc(cut_mc)}`")
-    elif cut_mc:
-        bloc.append(f"– Cut `{_esc(cut_mc)}`")
+        bloc.append(f"- Entry `{_esc(zone)}`")
+    if cut_mc:
+        bloc.append(f"- SL `{_esc(cut_mc)}`")
     if intel.get("t1"):
         mc = p.market_cap or 0
 
@@ -226,17 +223,25 @@ def format_alert(p) -> str:
                 return f"`{_usd(v)}` (+{(v / mc - 1) * 100:.0f}%)"
             return f"`{_usd(v)}`"
 
-        bloc.append(f"– TP1 : {_tp(intel['t1'])}  ·  TP2 {_tp(intel.get('t2'))}"
-                    f"  ·  TP3 {_tp(intel.get('t3'))}")
+        # TP1 porte le tiret ; TP2 et TP3 s'alignent dessous, en retrait
+        bloc.append(f"- TP1 : {_tp(intel['t1'])}")
+        if intel.get("t2"):
+            bloc.append(f"  TP2 {_tp(intel['t2'])}")
+        if intel.get("t3"):
+            bloc.append(f"  TP3 {_tp(intel['t3'])}")
     if bloc:
         lines += [""] + bloc
 
-    # le raisonnement en dernier : on lit les chiffres d'abord, l'explication ensuite
+    # le raisonnement, puis les insiders : on lit les chiffres, l'explication,
+    # et enfin qui est deja dessus.
     fin_txt = [t for t in (intel.get("action"), intel.get("pourquoi")) if t]
     if fin_txt:
         lines += [""] + [_esc(t) for t in fin_txt]
 
-    # pas d'adresse de contrat en clair : les deux liens y menent deja
+    if getattr(p, "smart_holders", 0):
+        srcs = ", ".join(_esc(s.get("name")) for s in (getattr(p, "sources", []) or [])[:3])
+        lines.append(f"👛 {p.smart_holders} insiders{(' — ' + srcs) if srcs else ''}")
+
     lines += ["", f"[DexScreener]({p.dex_url}) · [GMGN]({p.gmgn_url})"]
     return "\n".join(lines)
 
