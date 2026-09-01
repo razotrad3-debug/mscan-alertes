@@ -39,7 +39,7 @@ MIN_POS_USD = 200.0    # en dessous : poussiere / airdrop, on ne compte pas
 MIN_MC = 150_000.0     # coins etablis : en dessous, c'est du lancement
 MAX_COINS = 60
 DIP_PCT = -10.0        # repli sur 24 h a partir duquel on signale le setup
-MAX_PRESELECT = 300    # mints envoyes a DexScreener par scan
+MAX_PRESELECT = 600    # mints envoyes a DexScreener par scan (30 par appel)
 # Au-dela, ce n'est plus un portefeuille de trader mais un aimant a spam
 # (un wallet vu ici portait 10 910 jetons) : ses "avoirs" ne disent rien et
 # ses airdrops se retrouveraient en tete du classement par convergence.
@@ -286,6 +286,19 @@ def _metriques(mints: List[str]) -> dict:
     return out
 
 
+def _airdrop(porteurs) -> bool:
+    """
+    Signature d'un largage : tout le monde a exactement la meme quantite.
+
+    Deux traders qui achetent le meme coin n'obtiennent jamais le meme nombre
+    de jetons a la decimale pres. Ces mints-la sont nombreux et, comme ils
+    touchent beaucoup d'adresses d'un coup, ils arrivaient en tete du
+    classement par convergence.
+    """
+    qtes = {q for _, q in porteurs}
+    return len(qtes) == 1 and len(porteurs) >= 2
+
+
 # ── classement ─────────────────────────────────────────────────────
 def scan(log=print, force: bool = False) -> dict:
     """Coins detenus par au moins MIN_HOLDERS adresses suivies."""
@@ -314,7 +327,8 @@ def scan(log=print, force: bool = False) -> dict:
             par_mint.setdefault(m, []).append((a, q))
 
     lus = sum(1 for v in avoirs.values() if v)
-    retenus = [m for m, v in par_mint.items() if len(v) >= MIN_HOLDERS]
+    retenus = [m for m, v in par_mint.items()
+               if len(v) >= MIN_HOLDERS and not _airdrop(v)]
     retenus.sort(key=lambda m: len(par_mint[m]), reverse=True)
     retenus = retenus[:MAX_PRESELECT]
     log(f"[holdings] {lus}/{len(adresses)} portefeuilles connus, "
