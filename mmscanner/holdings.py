@@ -5,8 +5,8 @@ Difference avec Positions : Positions liste les ACHATS des 72 dernieres heures,
 donc surtout des lancements. Ici on lit le portefeuille tel qu'il est
 aujourd'hui — ce sont des coins gardes, souvent deja etablis, avec une
 capitalisation et une reconnaissance. Le setup n'est pas le meme : on ne
-cherche pas l'entree la plus tot, on cherche un repli sur un coin que le smart
-money n'a pas lache.
+cherche pas l'entree la plus tot, on cherche un point d'entree sous le leur,
+sur un coin que le smart money n'a pas lache.
 
 Cout : on lit les comptes de jetons via getTokenAccountsByOwner, methode RPC
 standard, au lieu de l'API DAS getAssetsByOwner qui est facturee bien plus
@@ -46,7 +46,7 @@ MAX_MC = 1_000_000_000.0
 # 21,26 $ (soit 21 000 Md$ de capitalisation) au lieu de 0,0044 $.
 QUOTES_FIABLES = {"SOL", "WSOL", "USDC", "USDT", "WETH", "ETH", "USD1", "PYUSD"}
 MAX_COINS = 60
-DIP_PCT = -10.0        # repli sur 24 h a partir duquel on signale le setup
+DIP_PCT = -10.0        # badge CONVICTION : ils tiennent malgre cette baisse
 MAX_PRESELECT = 600    # mints envoyes a DexScreener par scan (30 par appel)
 # Duree maximale d'un passage. Sur le RPC public un portefeuille recalcitrant
 # peut couter une minute a lui seul ; sans plafond, un tour de garde s'etirait

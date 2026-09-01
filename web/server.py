@@ -327,7 +327,7 @@ def create_app():
         tri = request.args.get("tri", "convergence")
         if tri == "mc":
             coins.sort(key=lambda c: c.get("mc") or 0, reverse=True)
-        elif tri == "repli":
+        elif tri == "conviction":
             coins.sort(key=lambda c: (c.get("chg_h24") or 0))
         else:
             coins.sort(key=lambda c: (c.get("holders", 0), c.get("value_usd", 0)),
@@ -1428,14 +1428,16 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
     <span class="sub">portefeuilles des wallets suivis · coins établis, pas des lancements</span></div>
   <div class="explain"><b>Positions</b>, l'onglet d'à côté, montre ce qu'ils viennent d'acheter. Ici, ce qu'ils <b>détiennent encore</b> :
     des coins déjà installés, avec une capitalisation et une reconnaissance. Le setup n'est pas le même —
-    on ne cherche pas l'entrée la plus tôt, on cherche <b>un repli sur un coin que le smart money n'a pas lâché</b>.
+    on ne cherche pas l'entrée la plus tôt, on cherche <b>un point d'entrée sous le leur</b>.
     Un coin entre dans la liste dès que <b>2 adresses suivies</b> en portent pour plus de $200 chacune.
+    Le badge <b>CONVICTION</b> marque ceux qui reculent de 10 % ou plus sur 24 h alors qu'ils les tiennent toujours :
+    ils n'ont pas vendu dans la baisse, donc tu entres plus bas qu'eux.
     {% if nwallets %}{{ nwallets }} portefeuilles lus{% endif %}{% if updated %} · relevé {{ updated|ago }}{% endif %}.</div>
 
   <div class="chips">
     <a class="chip {{ 'on' if tri=='convergence' }}" href="/holdings">Convergence</a>
     <a class="chip {{ 'on' if tri=='mc' }}" href="/holdings?tri=mc">Market cap</a>
-    <a class="chip {{ 'on' if tri=='repli' }}" href="/holdings?tri=repli">Repli 24h</a>
+    <a class="chip {{ 'on' if tri=='conviction' }}" href="/holdings?tri=conviction">Conviction</a>
   </div>
 
   {% if coins %}
@@ -1445,7 +1447,7 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
       <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
         <div class="gr" style="--gc:var(--gold);color:var(--gold)">{{ c.holders }}</div>
         <div class="id">
-          <div class="n">{{ c.symbol }}{% if c.dip %} <span style="font-size:9px;letter-spacing:.14em;color:#7cc4ff;border:1px solid rgba(124,196,255,.45);border-radius:var(--r);padding:1px 6px;vertical-align:2px">REPLI</span>{% endif %}</div>
+          <div class="n">{{ c.symbol }}{% if c.dip %} <span style="font-size:9px;letter-spacing:.14em;color:#7cc4ff;border:1px solid rgba(124,196,255,.45);border-radius:var(--r);padding:1px 6px;vertical-align:2px">CONVICTION</span>{% endif %}</div>
           <div class="s">{{ c.name }} · {{ c.groups }}</div>
         </div>
         <div class="val">
