@@ -84,7 +84,7 @@ EXCLUDE_STOCKS = {
     # indices / ETF / matières premières / FX
     "SPY","QQQ","IWM","DIA","VOO","TQQQ","SQQQ","GLD","SLV","USO","XAU","XAG",
     "VIX","DJIA","NASDAQ","SP500","NIKKEI","EUR","GBP","JPY","CNY",
-}
+ "SNDK", "WDC", "STX", "LOGI", "ASUS", "ACER", "DELL", "HPQ", "XRX", "CAJ", "GPRO", "GRMN", "FIT", "SONO", "PHG", "SIE", "PCRFY", "TOSYY",}
 # Noms d'entreprises/institutions : si le nom du token les contient -> exclu
 EXCLUDE_NAME_WORDS = {
     "tesla","nvidia","apple","microsoft","amazon","google","alphabet","meta",
@@ -95,6 +95,37 @@ EXCLUDE_NAME_WORDS = {
     "walmart","costco","starbucks","mcdonald","nike","adidas","pepsi","coca-cola",
     "visa","mastercard","jpmorgan","goldman","morgan stanley","citigroup",
     "pfizer","moderna","johnson","intel corp","qualcomm","cisco","ibm","oracle",
+
+    "sandisk",
+    "western digital",
+    "seagate",
+    "kingston",
+    "corsair",
+    "logitech",
+    "razer",
+    "asus",
+    "acer",
+    "lenovo",
+    "dell",
+    "hp inc",
+    "xerox",
+    "canon",
+    "nikon",
+    "gopro",
+    "garmin",
+    "fitbit",
+    "sonos",
+    "bose",
+    "jbl",
+    "philips",
+    "siemens",
+    "bosch",
+    "panasonic",
+    "toshiba",
+    "sharp",
+    "lg electronics",
+    "foxconn",
+    "micron",
 }
 EXCLUDE_MINTS = {
     "So11111111111111111111111111111111111111112",

@@ -55,6 +55,7 @@ class Pair:
     sources: List[Dict[str, Any]] = field(default_factory=list)  # d'ou vient ce coin
     wallets_available: bool = False
     from_wallet: bool = False        # remonte par une adresse suivie, pas par la decouverte
+    danger: str = ""                 # motif d'exclusion (volume fabrique, autorite active)
 
     # résultats
     score: int = 0

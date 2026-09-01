@@ -15,6 +15,7 @@ from . import sources_dex as dex
 from . import sources_helius as helius
 from . import wallet_store
 from .phases import detect_phase, build_intel
+from . import safety
 from .scoring import score_pair
 
 
@@ -189,6 +190,7 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
     # ── construction + enrichissement DexScreener ────────
     t_dex = time.time()
     pairs: List[Pair] = []
+    ecartes = []
     with ThreadPoolExecutor(max_workers=8) as ex:
         enriched = list(ex.map(lambda r: dex.enrich(r["mint"]), working))
     for r, d in zip(working, enriched):
@@ -208,6 +210,13 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
 
         depuis_wallet = bool(r.get("_from_wallet"))
         p.from_wallet = depuis_wallet
+
+        # volume fabrique : des bots s'echangent le jeton pour entrer dans les
+        # classements. On peut vendre, mais le prix tombe des que ca s'arrete.
+        motif = safety.raison_exclusion(p)
+        if motif:
+            ecartes.append((p.symbol, motif))
+            continue
 
         # on ecarte toujours les actions tokenisees et les stables, meme venu
         # d'un wallet suivi : ce n'est pas du crypto-natif jouable.
@@ -230,6 +239,9 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
         pairs.append(p)
 
     log(f"[dexscreener] {len(pairs)} paires enrichies  ({time.time()-t_dex:.0f}s)")
+    if ecartes:
+        detail = ", ".join(f"{s} ({m})" for s, m in ecartes[:5])
+        log(f"[securite] {len(ecartes)} ecartee(s) pour volume fabrique : {detail}")
     _p(36, "RSI & structure", f"{len(pairs)} paires")
     pairs.sort(key=lambda x: x.vol_h24, reverse=True)
     seen_sym, dedup = set(), []
@@ -323,6 +335,16 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
         with ThreadPoolExecutor(max_workers=6) as ex:
             list(ex.map(_wallet_tracked, targets))
         log(f"[wallets] {len(targets)} coins  ({time.time()-t_w:.0f}s)")
+
+    # ── securite : autorites du token ────────────────────
+    # freeze authority active = l'emetteur peut geler tes jetons, tu achetes
+    # et tu ne peux plus vendre. C'est le seul vrai piege, et il se verifie.
+    try:
+        n_danger = safety.controler_autorites(pairs[: config.ENRICH_TOP_N], log=log)
+        if n_danger:
+            pairs = [p for p in pairs if not getattr(p, "danger", "")]
+    except Exception as e:
+        log(f"[securite] {e}")
 
     # ── phase + intel + score ────────────────────────────
     _p(94, "Notation", f"{len(pairs)} paires")
