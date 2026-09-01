@@ -71,7 +71,7 @@ def one_scan() -> int:
     # tomberait a zero dans le cloud et les notes s'ecrouleraient.
     try:
         from mmscanner import holdings
-        holdings.scan()
+        holdings.lancer_en_fond()
     except Exception as e:
         print(f"[holdings] {e}")
 

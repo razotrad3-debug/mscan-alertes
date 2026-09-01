@@ -526,9 +526,12 @@ def scan_loop(demo: bool = False):
             # viennent d'acheter) : coins etablis, lus par vagues, cache 3 h
             try:
                 from mmscanner import holdings as hmod
-                hdata = hmod.scan()
-                with _LOCK:
-                    STATE["holdings"] = hdata
+
+                def _garder(res):
+                    with _LOCK:
+                        STATE["holdings"] = res
+
+                hmod.lancer_en_fond(sur_fin=_garder)
             except Exception as e:
                 print(f"[holdings] {e}")
 

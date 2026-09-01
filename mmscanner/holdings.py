@@ -40,6 +40,10 @@ MIN_MC = 150_000.0     # coins etablis : en dessous, c'est du lancement
 MAX_COINS = 60
 DIP_PCT = -10.0        # repli sur 24 h a partir duquel on signale le setup
 MAX_PRESELECT = 600    # mints envoyes a DexScreener par scan (30 par appel)
+# Duree maximale d'un passage. Sur le RPC public un portefeuille recalcitrant
+# peut couter une minute a lui seul ; sans plafond, un tour de garde s'etirait
+# sur une demi-heure. Ce qui n'a pas ete lu l'est au tour suivant.
+BUDGET_S = 240.0
 # Au-dela, ce n'est plus un portefeuille de trader mais un aimant a spam
 # (un wallet vu ici portait 10 910 jetons) : ses "avoirs" ne disent rien et
 # ses airdrops se retrouveraient en tete du classement par convergence.
@@ -56,6 +60,7 @@ TOKEN_PROGRAMS = (
 PUBLIC_RPC = "https://api.mainnet-beta.solana.com"
 
 _SESSION = requests.Session()
+_DEADLINE = 0.0            # fin du passage en cours (0 = pas de limite)
 _HELIUS_KO_UNTIL = 0.0     # quota epuise : on arrete de le solliciter un moment
 _HELIUS_OK_AT = 0.0        # derniere reponse utile d'Helius
 
@@ -99,7 +104,7 @@ def _rpc(url: str, method: str, params: list, timeout: int = 60):
         return 0, None
 
 
-def rpc(method: str, params: list, essais: int = 4):
+def rpc(method: str, params: list, essais: int = 3):
     """
     Appel RPC Solana resilient : Helius d'abord, RPC public en repli.
 
@@ -119,17 +124,20 @@ def rpc(method: str, params: list, essais: int = 4):
         code, res = _post_public(method, params)
         if res is not None:
             return res
-        time.sleep(1.0 * (essai + 1) + random.random() * 0.5)
+        time.sleep(min(2.0, 0.8 * (essai + 1)) + random.random() * 0.4)
     return None
 
 
-def _comptes(addr: str) -> Optional[Dict[str, float]]:
+def _comptes(addr: str):
     """
     {mint: quantite} pour une adresse Solana, soldes nuls exclus.
 
     Helius d'abord (rapide), RPC public en repli. None = les deux ont echoue :
     on garde alors la valeur precedente du cache plutot que de l'effacer.
     """
+    if _DEADLINE and time.time() > _DEADLINE:
+        return "budget"        # pas essaye : ni echec, ni oubli
+
     total = 0
     for prog in TOKEN_PROGRAMS:
         res = rpc("getTokenAccountsByOwner",
@@ -160,11 +168,18 @@ def _comptes(addr: str) -> Optional[Dict[str, float]]:
 
 # ── cache disque ───────────────────────────────────────────────────
 def _lire_cache() -> dict:
-    try:
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f) or {}
-    except Exception:
-        return {}
+    # le rafraichissement tourne dans son fil pendant que le scanner lit :
+    # une lecture qui tombe pile sur le remplacement du fichier ne doit pas
+    # renvoyer un index vide, sinon le smart-money disparait le temps d'un scan
+    for essai in range(3):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f) or {}
+        except FileNotFoundError:
+            return {}
+        except Exception:
+            time.sleep(0.15)
+    return {}
 
 
 def _ecrire_cache(c: dict) -> None:
@@ -199,10 +214,15 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
     perimes = [a for a in adresses if _perime(a)][:budget] if refresh else []
 
     if perimes:
+        global _DEADLINE
         t0 = time.time()
-        lus = spam = 0
+        _DEADLINE = t0 + BUDGET_S
+        lus = spam = reste = 0
         with ThreadPoolExecutor(max_workers=3) as ex:
             for a, mints in zip(perimes, ex.map(_comptes, perimes)):
+                if mints == "budget":
+                    reste += 1
+                    continue      # on n'y a pas touche : rien a inscrire
                 if mints is None:
                     # echec : on retente plus tard, et de plus en plus tard,
                     # sinon une adresse morte occupe un creneau a chaque tour
@@ -222,9 +242,11 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                 else:
                     cache[a] = {"at": time.time(), "n": len(mints),
                                 "mints": mints}
+        _DEADLINE = 0.0
         _ecrire_cache(cache)
         log(f"[holdings] {lus}/{len(perimes)} portefeuilles relus"
             + (f", {spam} ecartes (spam)" if spam else "")
+            + (f", {reste} reportes (temps)" if reste else "")
             + f" ({time.time() - t0:.0f}s)")
 
     # une adresse jamais lue est absente, pas "sans jetons" : la nuance
@@ -381,6 +403,35 @@ def scan(log=print, force: bool = False) -> dict:
         f"({time.time() - t0:.0f}s)")
     save(res)
     return res
+
+
+_EN_COURS = threading.Event()
+
+
+def lancer_en_fond(log=print, sur_fin=None) -> bool:
+    """
+    Lance un passage holdings dans son propre fil.
+
+    La lecture des portefeuilles dure quelques minutes sur le RPC public. Elle
+    n'a aucune raison de retarder le scan suivant ni les alertes : on la sort
+    de la boucle. Un seul passage a la fois.
+    """
+    if _EN_COURS.is_set():
+        return False
+    _EN_COURS.set()
+
+    def _tour():
+        try:
+            res = scan(log=log)
+            if sur_fin:
+                sur_fin(res)
+        except Exception as e:
+            log(f"[holdings] {e}")
+        finally:
+            _EN_COURS.clear()
+
+    threading.Thread(target=_tour, daemon=True, name="holdings").start()
+    return True
 
 
 def save(res: dict) -> None:
