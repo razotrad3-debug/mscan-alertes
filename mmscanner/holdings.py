@@ -37,6 +37,13 @@ TTL_SPAM_H = 24.0      # un aimant a spam le reste : inutile de le relire souven
 MIN_HOLDERS = 2        # un coin tenu par une seule adresse n'est pas un signal
 MIN_POS_USD = 200.0    # en dessous : poussiere / airdrop, on ne compte pas
 MIN_MC = 150_000.0     # coins etablis : en dessous, c'est du lancement
+# Un coin peut afficher une belle capitalisation et n'avoir aucun marche
+# derriere : PIPPIN sortait en tete du classement avec 21 wallets dessus,
+# 4,31 $ de liquidite et 3,41 $ echanges en 24 h. Sa capitalisation de 1,4 M$
+# etait une multiplication sans acheteur en face. Calibre sur le classement
+# reel : le coin sain le plus faible avait 39 000 $ de liquidite.
+MIN_LIQ = 25_000.0
+MIN_VOL_24H = 15_000.0
 # Au-dessus, ce n'est plus un memecoin mais un actif cote en bourse ou un
 # jeton d'infrastructure : PUMP a 4 Md$, WETH a 4,8 Md$. Ces lignes-la ne
 # donnent pas de setup, elles encombrent la liste.
@@ -46,8 +53,14 @@ MAX_MC = 1_000_000_000.0
 # 21,26 $ (soit 21 000 Md$ de capitalisation) au lieu de 0,0044 $.
 QUOTES_FIABLES = {"SOL", "WSOL", "USDC", "USDT", "WETH", "ETH", "USD1", "PYUSD"}
 MAX_COINS = 60
+MAX_SOLO = 40
 DIP_PCT = -10.0        # badge CONVICTION : ils tiennent malgre cette baisse
-MAX_PRESELECT = 600    # mints envoyes a DexScreener par scan (30 par appel)
+MAX_PRESELECT = 600    # mints tenus par 2+ envoyes a DexScreener
+# Coins tenus par une seule adresse suivie : un KOL qui entre seul sur un coin
+# hype est un signal, meme sans convergence. Le lot est gros (1 700 mints
+# environ) mais le cache de prix rend les passages suivants quasi gratuits.
+MAX_PRESELECT_SOLO = 1200
+TTL_PRIX_S = 1800.0
 # Duree maximale d'un passage. Sur le RPC public un portefeuille recalcitrant
 # peut couter une minute a lui seul ; sans plafond, un tour de garde s'etirait
 # sur une demi-heure. Ce qui n'a pas ete lu l'est au tour suivant.
@@ -330,13 +343,32 @@ def _dex_lot(mints: List[str], profondeur: int = 0) -> dict:
     return meilleur
 
 
+_PRIX = {}          # mint -> (instant, metriques) ; evite de tout refetcher
+
+
 def _metriques(mints: List[str]) -> dict:
-    lots = [mints[i:i + LOT_INITIAL]
-            for i in range(0, len(mints), LOT_INITIAL)]
-    out = {}
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        for d in ex.map(_dex_lot, lots):
-            out.update(d)
+    """Metriques DexScreener, avec un cache court partage entre passages."""
+    maintenant = time.time()
+    out, a_lire = {}, []
+    for m in mints:
+        hit = _PRIX.get(m)
+        if hit and maintenant - hit[0] < TTL_PRIX_S:
+            if hit[1] is not None:
+                out[m] = hit[1]
+        else:
+            a_lire.append(m)
+
+    if a_lire:
+        lots = [a_lire[i:i + LOT_INITIAL]
+                for i in range(0, len(a_lire), LOT_INITIAL)]
+        frais = {}
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            for d in ex.map(_dex_lot, lots):
+                frais.update(d)
+        for m in a_lire:
+            # on memorise aussi les absences : un jeton sans paire le reste
+            _PRIX[m] = (maintenant, frais.get(m))
+        out.update(frais)
     return out
 
 
@@ -355,7 +387,10 @@ def _airdrop(porteurs) -> bool:
 
 # ── classement ─────────────────────────────────────────────────────
 def scan(log=print, force: bool = False) -> dict:
-    """Coins detenus par au moins MIN_HOLDERS adresses suivies."""
+    """
+    Deux listes : les coins en convergence (plusieurs adresses suivies
+    dessus) et ceux qu'une seule adresse suivie tient.
+    """
     from mmscanner import followed as fmod
     from mmscanner import safety
     from mmscanner.engine import is_crypto_native
@@ -368,7 +403,8 @@ def scan(log=print, force: bool = False) -> dict:
     adresses = sorted((a for a in registre if not a.startswith("0x")),
                       key=lambda a: registre[a].get("origin") != "suivi")
     if not adresses:
-        return {"coins": [], "wallets": 0, "at": time.time(), "empty": True}
+        return {"coins": [], "solo": [], "wallets": 0, "at": time.time(),
+                "empty": True}
 
     avoirs = portefeuilles(adresses, log=log, force=force)
 
@@ -385,22 +421,53 @@ def scan(log=print, force: bool = False) -> dict:
                if len(v) >= MIN_HOLDERS and not _airdrop(v)]
     retenus.sort(key=lambda m: len(par_mint[m]), reverse=True)
     retenus = retenus[:MAX_PRESELECT]
+
+
+    # coins tenus par une seule adresse SUIVIE : pas de convergence, mais un
+    # KOL qui entre seul sur un coin hype reste un signal. Les wallets
+    # trouves automatiquement n'entrent pas dans ce lot, trop de bruit.
+    solitaires = [m for m, v in par_mint.items()
+                  if len(v) == 1
+                  and (registre.get(v[0][0]) or {}).get("origin") == "suivi"]
+    solitaires = solitaires[:MAX_PRESELECT_SOLO]
+
     log(f"[holdings] {lus}/{len(adresses)} portefeuilles connus, "
-        f"{len(par_mint)} mints, {len(retenus)} tenus par {MIN_HOLDERS}+")
-    if not retenus:
-        return {"coins": [], "wallets": lus, "total": len(adresses),
-                "at": time.time(), "empty": False}
+        f"{len(par_mint)} mints, {len(retenus)} tenus par {MIN_HOLDERS}+, "
+        f"{len(solitaires)} tenus seul")
 
-    infos = _metriques(retenus)
+    infos = _metriques(retenus + solitaires)
+    coins = _batir(retenus, par_mint, infos, registre, MIN_HOLDERS)
+    solos = _batir(solitaires, par_mint, infos, registre, 1)
 
-    coins = []
-    for m in retenus:
+    coins.sort(key=lambda c: (c["holders"], c["value_usd"]), reverse=True)
+    coins = _sans_pieges(coins[:MAX_COINS], log)
+    # un seul porteur : c'est la taille de sa position qui classe
+    solos.sort(key=lambda c: c["value_usd"], reverse=True)
+    solos = _sans_pieges(solos[:MAX_SOLO], log)
+
+    res = {"coins": coins, "solo": solos, "wallets": lus,
+           "total": len(adresses), "at": time.time(), "empty": False}
+    log(f"[holdings] {len(coins)} coins en convergence, {len(solos)} tenus "
+        f"seul ({time.time() - t0:.0f}s)")
+    save(res)
+    return res
+
+
+def _batir(mints, par_mint, infos, registre, mini: int) -> list:
+    """Applique les memes garde-fous a un lot de mints et rend les coins."""
+    from mmscanner import safety
+    from mmscanner.engine import is_crypto_native
+
+    out = []
+    for m in mints:
         d = infos.get(m)
         if not d or not d["price_usd"]:
             continue
         if not is_crypto_native(d["symbol"], d["name"], m):
             continue
         if not (MIN_MC <= d["mc"] <= MAX_MC):
+            continue
+        if d["liquidity_usd"] < MIN_LIQ or d["vol_h24"] < MIN_VOL_24H:
             continue
         louche, _ = safety.volume_suspect(d["liquidity_usd"], d["vol_h24"],
                                           d.get("age_hours"))
@@ -416,7 +483,7 @@ def scan(log=print, force: bool = False) -> dict:
             porteurs.append({"group": (registre.get(a) or {}).get("group") or "Suivi",
                              "usd": val})
             total += val
-        if len(porteurs) < MIN_HOLDERS:
+        if len(porteurs) < mini:
             continue
         porteurs.sort(key=lambda p: p["usd"], reverse=True)
 
@@ -426,16 +493,8 @@ def scan(log=print, force: bool = False) -> dict:
                  top_usd=porteurs[0]["usd"],
                  by=[p["group"] for p in porteurs],
                  dip=(d["chg_h24"] <= DIP_PCT))
-        coins.append(c)
-
-    coins.sort(key=lambda c: (c["holders"], c["value_usd"]), reverse=True)
-    coins = coins[:MAX_COINS]
-    res = {"coins": coins, "wallets": lus, "total": len(adresses),
-           "at": time.time(), "empty": False}
-    log(f"[holdings] {len(coins)} coins detenus retenus "
-        f"({time.time() - t0:.0f}s)")
-    save(res)
-    return res
+        out.append(c)
+    return out
 
 
 _EN_COURS = threading.Event()
@@ -467,6 +526,36 @@ def lancer_en_fond(log=print, sur_fin=None) -> bool:
     return True
 
 
+def _sans_pieges(coins: list, log=print) -> list:
+    """
+    Ecarte les tokens dont l'emetteur garde la main.
+
+    Une freeze authority active lui permet de geler tes jetons apres l'achat,
+    une mint authority d'en imprimer autant qu'il veut. PIPPIN, tenu par 21
+    adresses suivies, avait les deux.
+    """
+    from mmscanner import safety
+
+    sol = [c for c in coins if (c.get("chain") or "solana") == "solana"]
+    if not sol:
+        return coins
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        etats = list(ex.map(lambda c: safety.authorities(c["mint"]), sol))
+
+    pieges = set()
+    for c, e in zip(sol, etats):
+        if e.get("inconnu") or e.get("ok"):
+            continue
+        motifs = []
+        if e.get("freeze_authority"):
+            motifs.append("freeze authority active")
+        if e.get("mint_authority"):
+            motifs.append("mint authority active")
+        pieges.add(c["mint"])
+        log(f"[holdings] {c['symbol']} ecarte : {', '.join(motifs)}")
+    return [c for c in coins if c["mint"] not in pieges]
+
+
 def save(res: dict) -> None:
     try:
         tmp = RESULT_FILE + ".tmp"
@@ -480,6 +569,8 @@ def save(res: dict) -> None:
 def load() -> dict:
     try:
         with open(RESULT_FILE, "r", encoding="utf-8") as f:
-            return json.load(f) or {}
+            d = json.load(f) or {}
+        d.setdefault("solo", [])
+        return d
     except Exception:
-        return {"coins": [], "wallets": 0, "at": 0, "empty": True}
+        return {"coins": [], "solo": [], "wallets": 0, "at": 0, "empty": True}

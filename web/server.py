@@ -327,6 +327,12 @@ def create_app():
                                     for k, v in sorted(g.items(), key=lambda kv: -kv[1]))
             coins.append(c)
 
+        solo = []
+        for c in data.get("solo", []):
+            c = dict(c)
+            c["groups"] = ", ".join(sorted(set(c.get("by") or []))) or "Suivi"
+            solo.append(c)
+
         tri = request.args.get("tri", "convergence")
         if tri == "mc":
             coins.sort(key=lambda c: c.get("mc") or 0, reverse=True)
@@ -340,7 +346,8 @@ def create_app():
             coins.sort(key=lambda c: (c.get("holders", 0), c.get("value_usd", 0)),
                        reverse=True)
 
-        return render_template_string(PAGE_HOLDINGS, coins=coins, meta=meta,
+        return render_template_string(PAGE_HOLDINGS, coins=coins, solo=solo,
+                                      meta=meta,
                                       tri=tri, updated=data.get("at"),
                                       nwallets=data.get("wallets", 0),
                                       active="holdings",
@@ -1477,6 +1484,40 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
   <div class="empty"><span class="big">Portefeuilles en cours de lecture</span>
     Les avoirs sont relus par vagues et gardés 3 h en cache.<br>
     Reviens dans quelques minutes — ou ajoute des adresses dans <b>Mes adresses</b>.</div>
+  {% endif %}
+
+  {% if solo %}
+  <div class="sechead" style="margin-top:34px"><h1>Tenus par un seul</h1>
+    <span class="sub">un wallet suivi, seul sur le coin · position la plus grosse en haut</span></div>
+  <div class="explain">Pas de convergence ici : <b>une seule adresse suivie</b> est dessus. C'est plus tôt,
+    et plus risqué — mais c'est là qu'un KOL prend position avant que les autres suivent.
+    Le classement se fait sur <b>la taille de la position</b>, seule mesure de conviction quand il n'y a qu'un porteur.
+    Mêmes garde-fous que ci-dessus : liquidité réelle, volume réel, autorités révoquées.</div>
+  <div class="rows">
+    {% for c in solo %}
+    <div class="item">
+      <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
+        <div class="gr" style="--gc:var(--fg-3);color:var(--fg-3);font-size:11px">1</div>
+        <div class="id">
+          <div class="n">{{ c.symbol }}{% if c.dip %} <span style="font-size:7.5px;letter-spacing:.05em;color:#7cc4ff;border:1px solid rgba(124,196,255,.4);border-radius:var(--r);padding:0 4px;vertical-align:2px">CONVICTION</span>{% endif %}</div>
+          <div class="s">{{ c.name }} · {{ c.groups }}</div>
+        </div>
+        <div class="val">
+          <div class="m num">{{ c.mc|fmt }}</div>
+          <div class="c num {{ 'up' if (c.chg_h24 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h24 or 0) }}%</div>
+        </div>
+        <div class="val">
+          <div class="m num" style="font-size:12px;color:var(--gold-2)">{{ c.value_usd|fmt }}</div>
+          <div class="c" style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-4)">position</div>
+        </div>
+        <div class="acts">
+          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
   {% endif %}
 </div></body></html>""")
 

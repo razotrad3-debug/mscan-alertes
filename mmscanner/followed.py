@@ -161,12 +161,13 @@ def recent_buys(address: str, hours: float = 72, max_tx: int = 120) -> List[Dict
     EVM (Ethereum puis Base).
     """
     if sources_evm.is_evm(address):
+        # toutes les chaines, pas seulement la premiere qui repond : un trader
+        # actif sur Ethereum l'est souvent aussi sur Robinhood, et s'arreter
+        # au premier resultat rendait la seconde invisible.
         rows = []
-        for chain in ("ethereum", "base"):
+        for chain in ("ethereum", "base", "robinhood"):
             for r in sources_evm.recent_buys(address, chain, hours=hours):
                 rows.append({**r, "chain": chain, "tx": 1})
-            if rows:            # trouvé sur cette chaîne : inutile d'aller plus loin
-                break
         return rows
     if not config.HELIUS_API_KEY:
         return []
@@ -197,6 +198,10 @@ def recent_buys(address: str, hours: float = 72, max_tx: int = 120) -> List[Dict
 # n'est pas un signal de setup : on ne garde que le crypto-natif jouable, le
 # meme perimetre que le radar et l'onglet Detenus.
 MAX_MC_JOUABLE = 1_000_000_000
+# Meme garde-fou que l'onglet Detenus : un coin sans marche derriere n'est pas
+# une position, c'est un piege ou un cadavre.
+MIN_LIQ_JOUABLE = 25_000
+MIN_VOL_JOUABLE = 15_000
 
 
 def _jouable(info: dict, mint: str = "") -> bool:
@@ -204,7 +209,17 @@ def _jouable(info: dict, mint: str = "") -> bool:
     if not is_crypto_native(info.get("symbol"), info.get("name"), mint):
         return False
     mc = info.get("market_cap") or info.get("mc") or 0
-    return 0 < mc <= MAX_MC_JOUABLE
+    if not (0 < mc <= MAX_MC_JOUABLE):
+        return False
+    # les releves ecrits avant ce controle n'ont pas ces champs : on ne peut
+    # pas les juger la-dessus, le scan suivant s'en chargera
+    liq = info.get("liquidity_usd")
+    vol = info.get("vol_h24")
+    if liq is not None and liq < MIN_LIQ_JOUABLE:
+        return False
+    if vol is not None and vol < MIN_VOL_JOUABLE:
+        return False
+    return True
 
 
 def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
