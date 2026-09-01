@@ -193,6 +193,20 @@ def recent_buys(address: str, hours: float = 72, max_tx: int = 120) -> List[Dict
     return sorted(buys.values(), key=lambda b: b["ts"], reverse=True)
 
 
+# Un wallet suivi achete aussi du WETH, du SOL ou un jeton d'entreprise. Ce
+# n'est pas un signal de setup : on ne garde que le crypto-natif jouable, le
+# meme perimetre que le radar et l'onglet Detenus.
+MAX_MC_JOUABLE = 1_000_000_000
+
+
+def _jouable(info: dict, mint: str = "") -> bool:
+    from .engine import is_crypto_native
+    if not is_crypto_native(info.get("symbol"), info.get("name"), mint):
+        return False
+    mc = info.get("market_cap") or info.get("mc") or 0
+    return 0 < mc <= MAX_MC_JOUABLE
+
+
 def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
     """
     Retourne :
@@ -240,6 +254,8 @@ def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
         for b in buys:
             info = cache.get(b["mint"]) or {}
             if not info:
+                continue
+            if not _jouable(info, b["mint"]):
                 continue
             row = {
                 "mint": b["mint"], "ts": b["ts"], "amount": b.get("amount", 0),
@@ -349,7 +365,10 @@ def load_buys() -> dict:
         import json
         with open(BUYS_CACHE, "r", encoding="utf-8") as f:
             d = json.load(f) or {}
-        return {"coins": d.get("coins") or [], "at": d.get("at") or 0}
+        # le filtre s'applique aussi a la relecture : un releve ecrit avant
+        # sa mise en place ne doit pas reafficher du WETH
+        coins = [c for c in (d.get("coins") or []) if _jouable(c, c.get("mint", ""))]
+        return {"coins": coins, "at": d.get("at") or 0}
     except Exception:
         return {"coins": [], "at": 0}
 
@@ -370,4 +389,5 @@ def recent_mints(hours: float = 48) -> list:
         return []
     limite = time.time() - hours * 3600
     return [c["mint"] for c in d.get("coins", [])
-            if c.get("mint") and (c.get("ts") or 0) >= limite]
+            if c.get("mint") and (c.get("ts") or 0) >= limite
+            and _jouable(c, c["mint"])]

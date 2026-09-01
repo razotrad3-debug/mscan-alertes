@@ -37,6 +37,14 @@ TTL_SPAM_H = 24.0      # un aimant a spam le reste : inutile de le relire souven
 MIN_HOLDERS = 2        # un coin tenu par une seule adresse n'est pas un signal
 MIN_POS_USD = 200.0    # en dessous : poussiere / airdrop, on ne compte pas
 MIN_MC = 150_000.0     # coins etablis : en dessous, c'est du lancement
+# Au-dessus, ce n'est plus un memecoin mais un actif cote en bourse ou un
+# jeton d'infrastructure : PUMP a 4 Md$, WETH a 4,8 Md$. Ces lignes-la ne
+# donnent pas de setup, elles encombrent la liste.
+MAX_MC = 1_000_000_000.0
+# Quotes ou le prix se fait vraiment. Un pool adosse a un jeton exotique peut
+# afficher une grosse liquidite et un prix absurde : PUMP est ressorti a
+# 21,26 $ (soit 21 000 Md$ de capitalisation) au lieu de 0,0044 $.
+QUOTES_FIABLES = {"SOL", "WSOL", "USDC", "USDT", "WETH", "ETH", "USD1", "PYUSD"}
 MAX_COINS = 60
 DIP_PCT = -10.0        # repli sur 24 h a partir duquel on signale le setup
 MAX_PRESELECT = 600    # mints envoyes a DexScreener par scan (30 par appel)
@@ -280,10 +288,13 @@ def _dex_lot(mints: List[str]) -> dict:
         if not m:
             continue
         liq = float((p.get("liquidity") or {}).get("usd") or 0)
-        if m in meilleur and liq <= meilleur[m]["liquidity_usd"]:
+        quote = ((p.get("quoteToken") or {}).get("symbol") or "").upper()
+        rang = (quote in QUOTES_FIABLES, liq)
+        if m in meilleur and rang <= meilleur[m]["_rang"]:
             continue
         cree = p.get("pairCreatedAt")
         meilleur[m] = {
+            "_rang": rang,
             "chain": p.get("chainId") or "solana",
             "symbol": base.get("symbol") or "?",
             "name": base.get("name") or base.get("symbol") or "?",
@@ -368,7 +379,7 @@ def scan(log=print, force: bool = False) -> dict:
             continue
         if not is_crypto_native(d["symbol"], d["name"], m):
             continue
-        if d["mc"] < MIN_MC:
+        if not (MIN_MC <= d["mc"] <= MAX_MC):
             continue
         louche, _ = safety.volume_suspect(d["liquidity_usd"], d["vol_h24"],
                                           d.get("age_hours"))
@@ -389,6 +400,7 @@ def scan(log=print, force: bool = False) -> dict:
         porteurs.sort(key=lambda p: p["usd"], reverse=True)
 
         c = dict(d)
+        c.pop("_rang", None)      # critere de choix du pool, pas une donnee
         c.update(mint=m, holders=len(porteurs), value_usd=total,
                  top_usd=porteurs[0]["usd"],
                  by=[p["group"] for p in porteurs],

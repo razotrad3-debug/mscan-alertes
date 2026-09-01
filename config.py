@@ -96,6 +96,11 @@ EXCLUDE_NAME_WORDS = {
     "visa","mastercard","jpmorgan","goldman","morgan stanley","citigroup",
     "pfizer","moderna","johnson","intel corp","qualcomm","cisco","ibm","oracle",
 
+    # editeurs et produits financiers vus passer dans les achats suivis
+    "unity software", "unity technologies", "adobe", "salesforce", "shopify",
+    "leverage assets", "wrapped ether", "wrapped bitcoin", "staked ether",
+    "liquid staking",
+
     "sandisk",
     "western digital",
     "seagate",
