@@ -294,7 +294,7 @@ def create_app():
 
         return render_template_string(PAGE_POSITIONS, coins=coins, meta=meta,
                                       updated=meta.get("followed_at"),
-                                      active="wallets",
+                                      active="holdings",
                                       helius=bool(config.HELIUS_API_KEY))
 
     @app.route("/holdings")
@@ -944,10 +944,16 @@ MACROS = r"""
 {% macro subtabs(cur) %}
 <div class="subtabs">
   <a href="/wallets" class="{{ 'on' if cur=='detectes' }}">Classement</a>
-  <a href="/positions" class="{{ 'on' if cur=='positions' }}">Positions</a>
   <a href="/flow" class="{{ 'on' if cur=='flow' }}">Flux</a>
   <a href="/adresses" class="{{ 'on' if cur=='adresses' }}">Mes adresses</a>
   <a href="/alertes" class="{{ 'on' if cur=='alertes' }}">Alertes</a>
+</div>
+{% endmacro %}
+
+{% macro tabs_holdings(cur) %}
+<div class="subtabs">
+  <a href="/holdings" class="{{ 'on' if cur=='detenus' }}">Détenus</a>
+  <a href="/positions" class="{{ 'on' if cur=='positions' }}">Positions</a>
 </div>
 {% endmacro %}
 
@@ -1364,9 +1370,9 @@ PAGE_WALLETS = (_H + "<title>MSCAN · Wallets</title>" + STYLE + "</head><body>"
 PAGE_POSITIONS = (_H + "<title>MSCAN · Positions</title>" + STYLE + "</head><body>"
                   + MACROS + CHROME + r"""
 <div class="page">
-  {{ subtabs('positions') }}
+  {{ tabs_holdings('positions') }}
   <div class="sechead"><h1>Positions communes</h1>
-    <span class="sub">les coins où les wallets suivis sont en ce moment · les plus partagés en haut</span></div>
+    <span class="sub">ce qu'ils viennent d'acheter · 72 dernières heures · les plus partagés en haut</span></div>
   <div class="explain">Chaque ligne est un coin achété récemment par au moins une adresse suivie.
     Plus il y a de monde dessus, plus il remonte : <b>c'est la convergence qui compte</b>, pas la taille d'un achat isolé.
     Mis à jour à chaque scan{% if updated %} · dernier relevé {{ updated|ago }}{% endif %}.</div>
@@ -1408,9 +1414,10 @@ PAGE_POSITIONS = (_H + "<title>MSCAN · Positions</title>" + STYLE + "</head><bo
 PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body>"
                  + MACROS + CHROME + r"""
 <div class="page">
+  {{ tabs_holdings('detenus') }}
   <div class="sechead"><h1>Ce qu'ils gardent</h1>
     <span class="sub">portefeuilles des wallets suivis · coins établis, pas des lancements</span></div>
-  <div class="explain"><b>Positions</b> montre ce qu'ils viennent d'acheter. Ici, ce qu'ils <b>détiennent encore</b> :
+  <div class="explain"><b>Positions</b>, l'onglet d'à côté, montre ce qu'ils viennent d'acheter. Ici, ce qu'ils <b>détiennent encore</b> :
     des coins déjà installés, avec une capitalisation et une reconnaissance. Le setup n'est pas le même —
     on ne cherche pas l'entrée la plus tôt, on cherche <b>un repli sur un coin que le smart money n'a pas lâché</b>.
     Un coin entre dans la liste dès que <b>2 adresses suivies</b> en portent pour plus de $200 chacune.
