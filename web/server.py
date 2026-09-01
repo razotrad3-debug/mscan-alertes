@@ -328,7 +328,11 @@ def create_app():
         if tri == "mc":
             coins.sort(key=lambda c: c.get("mc") or 0, reverse=True)
         elif tri == "conviction":
-            coins.sort(key=lambda c: (c.get("chg_h24") or 0))
+            # les coins en repli d'abord, et parmi eux le plus de wallets en
+            # haut : la conviction se mesure au nombre de gens qui tiennent,
+            # pas a la profondeur de la baisse
+            coins.sort(key=lambda c: (bool(c.get("dip")), c.get("holders", 0),
+                                      c.get("value_usd", 0)), reverse=True)
         else:
             coins.sort(key=lambda c: (c.get("holders", 0), c.get("value_usd", 0)),
                        reverse=True)
@@ -793,18 +797,18 @@ details[open]>summary .wchev{transform:rotate(180deg)}
  background:var(--surface);padding:12px 16px;margin-bottom:18px;font-size:12px;
  line-height:1.65;color:var(--fg-3)}
 .explain b{color:var(--fg-2);font-weight:600}
-.chains{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px}
+.chains{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 .chains .ch{background:var(--surface);border:1px solid var(--hair);color:var(--fg-3);
- padding:8px 14px;border-radius:var(--r);cursor:pointer;font-size:10.5px;font-weight:600;
- letter-spacing:.1em;text-transform:uppercase;transition:.15s;font-family:inherit;
- display:inline-flex;align-items:center;gap:8px}
+ padding:5px 10px;border-radius:var(--r);cursor:pointer;font-size:9px;font-weight:600;
+ letter-spacing:.07em;text-transform:uppercase;transition:.15s;font-family:inherit;
+ display:inline-flex;align-items:center;gap:6px}
 .chains .ch:hover{color:var(--fg);border-color:var(--cc)}
-.chains .ch i{font-style:normal;font-size:9.5px;color:var(--fg-4);font-variant-numeric:tabular-nums}
+.chains .ch i{font-style:normal;font-size:8.5px;color:var(--fg-4);font-variant-numeric:tabular-nums}
 .chains .ch.on{background:color-mix(in srgb,var(--cc) 14%,transparent);
  border-color:var(--cc);color:var(--cc)}
 .chains .ch.on i{color:var(--cc)}
 .chains .clogo{display:flex;color:var(--cc)}
-.chains .clogo svg{width:14px;height:14px}
+.chains .clogo svg{width:12px;height:12px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
 .chips .chip{background:var(--surface);border:1px solid var(--hair);color:var(--fg-3);
  padding:7px 13px;border-radius:var(--r);cursor:pointer;font-size:10px;font-weight:600;
@@ -1447,7 +1451,7 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
       <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
         <div class="gr" style="--gc:var(--gold);color:var(--gold)">{{ c.holders }}</div>
         <div class="id">
-          <div class="n">{{ c.symbol }}{% if c.dip %} <span style="font-size:9px;letter-spacing:.14em;color:#7cc4ff;border:1px solid rgba(124,196,255,.45);border-radius:var(--r);padding:1px 6px;vertical-align:2px">CONVICTION</span>{% endif %}</div>
+          <div class="n">{{ c.symbol }}{% if c.dip %} <span style="font-size:7.5px;letter-spacing:.05em;color:#7cc4ff;border:1px solid rgba(124,196,255,.4);border-radius:var(--r);padding:0 4px;vertical-align:2px">CONVICTION</span>{% endif %}</div>
           <div class="s">{{ c.name }} · {{ c.groups }}</div>
         </div>
         <div class="val">
