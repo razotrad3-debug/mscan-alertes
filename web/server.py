@@ -278,8 +278,17 @@ def create_app():
         except Exception:
             split_group = lambda l: ("Suivi", l)
 
+        # au demarrage l'etat en memoire est vide : on repart du dernier
+        # releve ecrit sur disque plutot que d'afficher une page vide
+        bruts = (meta.get("followed") or {}).get("coins") or []
+        releve = meta.get("followed_at") or 0
+        if not bruts:
+            from mmscanner import followed as _f
+            d = _f.load_buys()
+            bruts, releve = d["coins"], d["at"]
+
         coins = []
-        for c in (meta.get("followed") or {}).get("coins", []):
+        for c in bruts:
             g = {}
             for lab in c.get("by", []):
                 grp = split_group(lab)[0] or "Suivi"
@@ -293,7 +302,7 @@ def create_app():
         coins.sort(key=lambda c: (len(c.get("by", [])), c.get("ts", 0)), reverse=True)
 
         return render_template_string(PAGE_POSITIONS, coins=coins, meta=meta,
-                                      updated=meta.get("followed_at"),
+                                      updated=releve,
                                       active="holdings",
                                       helius=bool(config.HELIUS_API_KEY))
 

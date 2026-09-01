@@ -338,6 +338,22 @@ def save_buys(data: dict) -> None:
         pass
 
 
+def load_buys() -> dict:
+    """
+    Dernier releve d'achats ecrit sur disque.
+
+    L'interface s'en sert au demarrage : sans lui, l'onglet Positions restait
+    vide jusqu'au premier scan complet, soit une dizaine de minutes.
+    """
+    try:
+        import json
+        with open(BUYS_CACHE, "r", encoding="utf-8") as f:
+            d = json.load(f) or {}
+        return {"coins": d.get("coins") or [], "at": d.get("at") or 0}
+    except Exception:
+        return {"coins": [], "at": 0}
+
+
 def recent_mints(hours: float = 48) -> list:
     """
     Mints sur lesquels une adresse suivie est entree recemment.
