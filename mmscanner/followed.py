@@ -260,8 +260,10 @@ def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
             row = {
                 "mint": b["mint"], "ts": b["ts"], "amount": b.get("amount", 0),
                 # sans la chaine, l'interface fabriquait un lien /solana/ pour
-                # une adresse Ethereum : DexScreener repondait "introuvable"
-                "chain": info.get("chain") or "",
+                # une adresse Ethereum : DexScreener repondait "introuvable".
+                # DexScreener d'abord, pour rester coherent avec la paire qu'on
+                # pointe ; sinon la chaine ou l'achat a ete lu.
+                "chain": info.get("chain") or b.get("chain") or "",
                 "name": info.get("name", "?"), "symbol": info.get("symbol", "?"),
                 "mc": info.get("market_cap", 0), "chg_h1": info.get("chg_h1", 0),
                 "chg_h24": info.get("chg_h24", 0), "vol_h24": info.get("vol_h24", 0),
@@ -357,6 +359,40 @@ def save_buys(data: dict) -> None:
         pass
 
 
+_CHAINES_TENTEES = 0.0     # derniere tentative de completion (anti-martelage)
+
+
+def completer_chaines(coins: list) -> bool:
+    """
+    Retrouve la chaine et la paire des coins qui ne les ont pas.
+
+    Sans chaine on ne peut pas ouvrir le graphique : le lien tombait sur la
+    recherche DexScreener, ou il fallait encore cliquer. Un seul appel couvre
+    30 jetons, toutes chaines confondues. Retourne True si quelque chose a
+    change, pour que l'appelant reecrive le cache.
+    """
+    global _CHAINES_TENTEES
+    manquants = [c for c in coins if c.get("mint") and not c.get("chain")]
+    if not manquants:
+        return False
+    if time.time() - _CHAINES_TENTEES < 300:      # DexScreener muet : on patiente
+        return False
+    _CHAINES_TENTEES = time.time()
+
+    from .holdings import _metriques
+    infos = _metriques([c["mint"] for c in manquants])
+    change = False
+    for c in manquants:
+        d = infos.get(c["mint"])
+        if not d:
+            continue
+        c["chain"] = d.get("chain") or ""
+        if d.get("pair"):
+            c["pair"] = d["pair"]
+        change = True
+    return change
+
+
 def load_buys() -> dict:
     """
     Dernier releve d'achats ecrit sur disque.
@@ -371,6 +407,16 @@ def load_buys() -> dict:
         # le filtre s'applique aussi a la relecture : un releve ecrit avant
         # sa mise en place ne doit pas reafficher du WETH
         coins = [c for c in (d.get("coins") or []) if _jouable(c, c.get("mint", ""))]
+        # un releve ecrit avant qu'on enregistre la chaine se repare ici, une
+        # fois, et le fichier est remis a jour : les liens ouvrent alors le
+        # graphique directement, sur Ethereum comme sur Solana
+        if completer_chaines(coins):
+            d["coins"] = coins
+            try:
+                with open(BUYS_CACHE, "w", encoding="utf-8") as f:
+                    json.dump(d, f)
+            except Exception:
+                pass
         return {"coins": coins, "at": d.get("at") or 0}
     except Exception:
         return {"coins": [], "at": 0}

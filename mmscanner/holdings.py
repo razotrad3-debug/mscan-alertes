@@ -264,7 +264,15 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
 
 
 # ── prix / metriques : un appel DexScreener pour 30 mints ───────────
-def _dex_lot(mints: List[str]) -> dict:
+# DexScreener ne renvoie pas 30 JETONS par appel mais 30 PAIRES. Un jeton
+# ayant plusieurs pools, demander 30 adresses d'un coup en fait revenir cinq
+# ou six : les autres disparaissent en silence. Mesure faite sur 7 adresses :
+# 30 paires renvoyees, 5 jetons couverts, 2 perdus.
+PLAFOND_PAIRES = 30
+LOT_INITIAL = 10
+
+
+def _dex_lot(mints: List[str], profondeur: int = 0) -> dict:
     url = "https://api.dexscreener.com/latest/dex/tokens/" + ",".join(mints)
     data = None
     for essai in range(3):
@@ -310,11 +318,21 @@ def _dex_lot(mints: List[str]) -> dict:
             "age_hours": (max(0.0, (time.time() - cree / 1000.0) / 3600.0)
                           if cree else None),
         }
+    # reponse tronquee et jetons manquants : on redecoupe plutot que de les
+    # perdre. Deux niveaux suffisent en pratique.
+    absents = [m for m in mints if m not in meilleur]
+    tronquee = len(data.get("pairs") or []) >= PLAFOND_PAIRES
+    if absents and tronquee and len(mints) > 1 and profondeur < 4:
+        moitie = max(1, len(absents) // 2)
+        for part in (absents[:moitie], absents[moitie:]):
+            if part:
+                meilleur.update(_dex_lot(part, profondeur + 1))
     return meilleur
 
 
 def _metriques(mints: List[str]) -> dict:
-    lots = [mints[i:i + 30] for i in range(0, len(mints), 30)]
+    lots = [mints[i:i + LOT_INITIAL]
+            for i in range(0, len(mints), LOT_INITIAL)]
     out = {}
     with ThreadPoolExecutor(max_workers=4) as ex:
         for d in ex.map(_dex_lot, lots):
