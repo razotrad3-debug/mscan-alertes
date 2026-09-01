@@ -61,24 +61,27 @@ def authorities(mint: str) -> dict:
     hit = _cache.get(mint)
     if hit and (time.time() - hit["at"]) < _TTL:
         return hit["val"]
-    if not config.HELIUS_API_KEY:
-        return {"ok": True, "inconnu": True}
+
+    # Lecture du compte de mint en RPC standard plutot que par l'API DAS
+    # getAsset : la meme information, sans dependre d'un quota Helius intact.
+    # C'est le seul controle qui prouve vraiment un piege — une freeze
+    # authority active permet de geler tes jetons apres l'achat.
+    from mmscanner import holdings as _h
 
     val = {"ok": True, "inconnu": True}
+    res = _h.rpc("getAccountInfo", [mint, {"encoding": "jsonParsed"}], essais=2)
     try:
-        r = requests.post(
-            f"https://mainnet.helius-rpc.com/?api-key={config.HELIUS_API_KEY}",
-            json={"jsonrpc": "2.0", "id": "mm", "method": "getAsset",
-                  "params": {"id": mint}}, timeout=15)
-        ti = ((r.json() or {}).get("result") or {}).get("token_info") or {}
-        gel = ti.get("freeze_authority")
-        frappe = ti.get("mint_authority")
-        val = {
-            "freeze_authority": gel,
-            "mint_authority": frappe,
-            "ok": not gel and not frappe,
-            "inconnu": False,
-        }
+        info = (((res or {}).get("value") or {}).get("data") or {}).get("parsed") or {}
+        if info.get("type") == "mint":
+            champs = info.get("info") or {}
+            gel = champs.get("freezeAuthority")
+            frappe = champs.get("mintAuthority")
+            val = {
+                "freeze_authority": gel,
+                "mint_authority": frappe,
+                "ok": not gel and not frappe,
+                "inconnu": False,
+            }
     except Exception:
         pass
     _cache[mint] = {"at": time.time(), "val": val}
@@ -101,8 +104,6 @@ def controler_autorites(pairs, log=print) -> int:
     Verifie les autorites des paires retenues et marque celles qui sont
     piegees. Un appel par coin, en parallele. Retourne le nombre d'ecartes.
     """
-    if not config.HELIUS_API_KEY:
-        return 0
     cibles = [p for p in pairs if (p.chain or "solana") == "solana"]
     if not cibles:
         return 0
