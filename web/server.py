@@ -327,7 +327,7 @@ def create_app():
         return render_template_string(PAGE_HOLDINGS, coins=coins, meta=meta,
                                       tri=tri, updated=data.get("at"),
                                       nwallets=data.get("wallets", 0),
-                                      active="wallets",
+                                      active="holdings",
                                       helius=bool(config.HELIUS_API_KEY))
 
     @app.route("/adresses", methods=["GET", "POST"])
@@ -603,8 +603,10 @@ button{font-family:inherit}
 .status .live i{display:inline-block;width:4px;height:4px;border-radius:50%;background:var(--up);
  margin-right:7px;vertical-align:middle;box-shadow:0 0 6px var(--up)}
 .status .demo{color:var(--gold);border:1px solid var(--gold-dim);padding:3px 8px}
-.nav{max-width:1080px;margin:0 auto;padding:0 28px;display:grid;grid-template-columns:repeat(4,1fr)}
-.nav a{height:40px;display:flex;align-items:center;justify-content:center;
+/* groupees au centre : la grille de 4 colonnes fixes laissait un vide a
+   droite des que le nombre d'onglets changeait, et tirait tout vers la gauche */
+.nav{max-width:1080px;margin:0 auto;padding:0 28px;display:flex;justify-content:center}
+.nav a{min-width:148px;height:40px;display:flex;align-items:center;justify-content:center;
  font-size:10px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--fg-3);
  border-bottom:1px solid transparent;transition:color .16s,border-color .16s}
 .nav a:hover{color:var(--fg-2)}
@@ -943,7 +945,6 @@ MACROS = r"""
 <div class="subtabs">
   <a href="/wallets" class="{{ 'on' if cur=='detectes' }}">Classement</a>
   <a href="/positions" class="{{ 'on' if cur=='positions' }}">Positions</a>
-  <a href="/holdings" class="{{ 'on' if cur=='holdings' }}">Holdings</a>
   <a href="/flow" class="{{ 'on' if cur=='flow' }}">Flux</a>
   <a href="/adresses" class="{{ 'on' if cur=='adresses' }}">Mes adresses</a>
   <a href="/alertes" class="{{ 'on' if cur=='alertes' }}">Alertes</a>
@@ -1216,6 +1217,7 @@ CHROME = r"""
   </div>
   <nav class="nav">
     <a href="/" class="{{ 'on' if active=='radar' }}">Radar</a>
+    <a href="/holdings" class="{{ 'on' if active=='holdings' }}">Holdings</a>
     <a href="/wallets" class="{{ 'on' if active in ('wallets','follow','flow') }}">Wallets</a>
     <a href="/coin" class="{{ 'on' if active=='search' }}">Recherche</a>
   </nav>
@@ -1406,7 +1408,6 @@ PAGE_POSITIONS = (_H + "<title>MSCAN · Positions</title>" + STYLE + "</head><bo
 PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body>"
                  + MACROS + CHROME + r"""
 <div class="page">
-  {{ subtabs('holdings') }}
   <div class="sechead"><h1>Ce qu'ils gardent</h1>
     <span class="sub">portefeuilles des wallets suivis · coins établis, pas des lancements</span></div>
   <div class="explain"><b>Positions</b> montre ce qu'ils viennent d'acheter. Ici, ce qu'ils <b>détiennent encore</b> :
