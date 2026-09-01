@@ -25,7 +25,9 @@ VU_FILE = config.path("insider_seen.json")
 FENETRE_MIN = 20        # on ignore un achat plus vieux que ca : trop tard pour agir
 COOLDOWN_H = 12         # un meme coin ne repasse pas avant ce delai
 MIN_LIQ = 5_000         # en dessous, c'est injouable : on ne derange pas
-MAX_PAR_TOUR = 6        # garde-fou : jamais plus de 6 alertes d'un coup
+MAX_PAR_TOUR = 6
+EVM_TOUS_LES_S = 300.0     # cadence des adresses EVM (3 requetes chacune)
+_EVM_PROCHAIN = 0.0        # garde-fou : jamais plus de 6 alertes d'un coup
 
 
 def _charger() -> dict:
@@ -82,16 +84,23 @@ def poll(log=print, amorcage: bool = False) -> int:
     le premier tour signalerait d'un coup tous les achats des derniers jours.
     """
     suivis = load_followed()
-    if not suivis or not config.HELIUS_API_KEY:
+    if not suivis:
         return 0
 
     vu = _charger()
     maintenant = time.time()
     limite = maintenant - FENETRE_MIN * 60
 
-    # les adresses EVM passent par un autre chemin, plus lent : on garde
-    # cette veille sur Solana, ou l'essentiel se joue.
-    cibles = [(a, l) for a, l in suivis if not a.startswith("0x")]
+    # Solana a chaque tour ; les adresses EVM tous les EVM_TOUS_LES_S, car
+    # elles coutent trois requetes chacune (Ethereum, Base, Robinhood). Elles
+    # etaient purement et simplement exclues : c'est ce qui faisait arriver
+    # les paires Robinhood et Ethereum bien apres le setup.
+    global _EVM_PROCHAIN
+    cibles = [(a, l) for a, l in suivis
+              if not a.startswith("0x") and config.HELIUS_API_KEY]
+    if maintenant >= _EVM_PROCHAIN:
+        _EVM_PROCHAIN = maintenant + EVM_TOUS_LES_S
+        cibles += [(a, l) for a, l in suivis if a.startswith("0x")]
 
     def _lire(item):
         addr, label = item

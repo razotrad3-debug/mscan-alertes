@@ -31,10 +31,25 @@ ENDPOINTS: Dict[str, List[dict]] = {
         {"kind": "etherscan",
          "base": "https://api.routescan.io/v2/network/mainnet/evm/8453/etherscan/api"},
     ],
+    # Robinhood Chain (id 4663) a bien un Blockscout public. Il etait note
+    # "sans indexeur" ici, et c'est ce trou qui faisait arriver les paires
+    # Robinhood trop tard : aucune lecture d'achat n'etait possible dessus.
+    "robinhood": [
+        {"kind": "blockscout", "base": "https://robinhoodchain.blockscout.com"},
+    ],
 }
 
 # chaines sans indexeur public exploitable a ce jour
-UNSUPPORTED = {"robinhood"}
+UNSUPPORTED = set()
+
+# Sans en-tete de navigateur, l'instance Robinhood repond 403 (protection
+# Cloudflare) la ou la meme requete passe avec.
+ENTETES = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/126.0.0.0 Safari/537.36"),
+    "Accept": "application/json",
+}
 
 _dead: Dict[str, float] = {}          # hote -> instant de reprise
 _DEAD_FOR = 600.0                     # on ecarte un hote 10 min apres un echec
@@ -58,7 +73,7 @@ def _mark_dead(host: str) -> None:
 
 def _blockscout(base: str, address: str, limit: int) -> List[dict]:
     r = requests.get(f"{base}/api/v2/addresses/{address}/token-transfers",
-                     params={"type": "ERC-20"}, timeout=20)
+                     params={"type": "ERC-20"}, headers=ENTETES, timeout=20)
     r.raise_for_status()
     out = []
     for it in (r.json().get("items") or [])[: limit * 3]:
@@ -81,7 +96,8 @@ def _blockscout(base: str, address: str, limit: int) -> List[dict]:
 def _etherscan(base: str, address: str, limit: int) -> List[dict]:
     r = requests.get(base, params={"module": "account", "action": "tokentx",
                                    "address": address, "page": 1,
-                                   "offset": limit * 3, "sort": "desc"}, timeout=20)
+                                   "offset": limit * 3, "sort": "desc"},
+                     headers=ENTETES, timeout=20)
     r.raise_for_status()
     res = r.json().get("result")
     if not isinstance(res, list):
