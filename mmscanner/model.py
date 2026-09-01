@@ -3,6 +3,42 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
 
+# ── liens externes ──────────────────────────────────────────────────
+# Construits a partir de la CHAINE du coin. Une adresse EVM collee sur le
+# chemin /solana/ donne une page "coin introuvable" sur DexScreener : c'est
+# arrive sur les paires Ethereum et Robinhood affichees hors du radar.
+GMGN_SLUGS = {"solana": "sol", "ethereum": "eth", "base": "base"}
+CHAINES_CONNUES = {"solana", "ethereum", "base", "robinhood", "bsc", "arbitrum",
+                   "polygon", "avalanche", "optimism", "sui", "tron"}
+
+
+def dex_link(chain: str, adresse: str) -> str:
+    """
+    Lien DexScreener. Sans chaine fiable on passe par la recherche : elle
+    trouve le jeton quelle que soit la chaine, plutot que d'afficher une page
+    vide sur une chaine devinee au hasard.
+    """
+    c = (chain or "").strip().lower()
+    if not adresse:
+        return "https://dexscreener.com/"
+    if c not in CHAINES_CONNUES:
+        if adresse.startswith("0x"):        # EVM, chaine inconnue
+            return f"https://dexscreener.com/search?q={adresse}"
+        c = "solana"                        # adresse base58 : c'est du Solana
+    return f"https://dexscreener.com/{c}/{adresse}"
+
+
+def gmgn_link(chain: str, adresse: str) -> str:
+    """Lien GMGN, ou DexScreener si GMGN ne couvre pas la chaine."""
+    slug = GMGN_SLUGS.get((chain or "").strip().lower())
+    if not slug:
+        if not chain and adresse and not adresse.startswith("0x"):
+            slug = "sol"                    # base58 sans chaine : Solana
+        else:
+            return dex_link(chain, adresse)
+    return f"https://gmgn.ai/{slug}/token/{adresse}"
+
+
 @dataclass
 class Pair:
     # identité
@@ -66,21 +102,13 @@ class Pair:
     intel: Dict[str, Any] = field(default_factory=dict)
     updated_at: float = 0.0
 
-    # liens
-    # slugs de chaine pour construire les liens externes
-    _GMGN = {"solana": "sol", "ethereum": "eth", "base": "base"}
-
     @property
     def gmgn_url(self) -> str:
-        slug = self._GMGN.get((self.chain or "solana").lower())
-        if not slug:      # chaine non couverte par GMGN (robinhood) -> DexScreener
-            return self.dex_url
-        return f"https://gmgn.ai/{slug}/token/{self.mint}"
+        return gmgn_link(self.chain, self.mint)
 
     @property
     def dex_url(self) -> str:
-        base = self.pair_address or self.mint
-        return f"https://dexscreener.com/{(self.chain or 'solana').lower()}/{base}"
+        return dex_link(self.chain, self.pair_address or self.mint)
 
     def pct_move_leg(self) -> Optional[float]:
         if self.swing_low and self.swing_high and self.swing_low > 0:

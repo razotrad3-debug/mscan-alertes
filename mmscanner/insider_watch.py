@@ -64,9 +64,13 @@ def _format(coin: dict) -> str:
     lines += ["", f"\U0001f45b {len(coin['par'])} insider(s) : {qui}",
               "_Score complet au prochain scan._", ""]
 
-    mint, chaine = coin["mint"], chain
-    lines.append(f"[DexScreener](https://dexscreener.com/{chaine}/{mint})"
-                 f" \u00b7 [GMGN](https://gmgn.ai/sol/token/{mint})")
+    # liens construits sur la chaine du coin : GMGN etait cable sur
+    # /sol/, ce qui envoyait vers une page vide pour une paire
+    # Ethereum ou Base
+    from .model import dex_link, gmgn_link
+    mint = coin["mint"]
+    lines.append(f"[DexScreener]({dex_link(chain, mint)})"
+                 f" · [GMGN]({gmgn_link(chain, mint)})")
     return "\n".join(lines)
 
 

@@ -296,6 +296,9 @@ def _dex_lot(mints: List[str]) -> dict:
         meilleur[m] = {
             "_rang": rang,
             "chain": p.get("chainId") or "solana",
+            # l'adresse de la paire vise directement le bon marche : sur une
+            # chaine EVM, l'adresse du jeton seule peut ne rien ouvrir
+            "pair": p.get("pairAddress") or "",
             "symbol": base.get("symbol") or "?",
             "name": base.get("name") or base.get("symbol") or "?",
             "price_usd": float(p.get("priceUsd") or 0),

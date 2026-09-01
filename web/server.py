@@ -7,6 +7,7 @@ from markupsafe import Markup
 
 import config
 from mmscanner import engine, telegram
+from mmscanner import model as _model
 
 STATE = {"pairs": [], "updated": 0, "scanning": False, "mode": "live", "error": "",
          "progress": {"pct": 0, "phase": "", "detail": ""},
@@ -119,6 +120,8 @@ def create_app():
         flowcolor=lambda v: "#4ade80" if (v or 0) >= 0 else "#ff7a7a",
         rsicolor=_rsicolor,
         flowpct=_flowpct,
+        dexlink=_model.dex_link,
+        gmgnlink=_model.gmgn_link,
         pctcolor=_pctcolor,
         icon=lambda n: Markup(ICONS.get(n, "")),
         money=_fmt,
@@ -1302,8 +1305,8 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
           <div class="c num {{ 'up' if c.chg_h1>=0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div></div>
         <div class="acts">
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
-          <a class="ic" title="GMGN" href="https://gmgn.ai/sol/token/{{ c.mint }}" target="_blank">{{ icon('chart') }}</a>
-          <a class="ic" title="DexScreener" href="https://dexscreener.com/solana/{{ c.mint }}" target="_blank">{{ icon('trend') }}</a>
+          <a class="ic" title="GMGN" href="{{ gmgnlink(c.chain, c.mint) }}" target="_blank">{{ icon('chart') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
           <button class="ic" title="Copier" onclick="cp(this,'{{ c.mint }}')">{{ icon('copy') }}</button>
         </div>
       </div>
@@ -1362,8 +1365,8 @@ PAGE_WALLETS = (_H + "<title>MSCAN · Wallets</title>" + STYLE + "</head><body>"
           <div class="acts" style="justify-content:flex-end">
             {% if c.mint %}
             <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
-            <a class="ic" title="GMGN" href="https://gmgn.ai/sol/token/{{ c.mint }}" target="_blank">{{ icon('chart') }}</a>
-            <a class="ic" title="DexScreener" href="https://dexscreener.com/solana/{{ c.mint }}" target="_blank">{{ icon('trend') }}</a>
+            <a class="ic" title="GMGN" href="{{ gmgnlink(c.chain, c.mint) }}" target="_blank">{{ icon('chart') }}</a>
+            <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
             {% endif %}
           </div>
         </div>
@@ -1410,7 +1413,7 @@ PAGE_POSITIONS = (_H + "<title>MSCAN · Positions</title>" + STYLE + "</head><bo
         </div>
         <div class="acts">
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
-          <a class="ic" title="DexScreener" href="https://dexscreener.com/solana/{{ c.mint }}" target="_blank">{{ icon('trend') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
         </div>
       </div>
     </div>
@@ -1464,7 +1467,7 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
         </div>
         <div class="acts">
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
-          <a class="ic" title="DexScreener" href="https://dexscreener.com/{{ c.chain or 'solana' }}/{{ c.mint }}" target="_blank">{{ icon('trend') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
         </div>
       </div>
     </div>
@@ -1681,8 +1684,8 @@ PAGE_FOLLOW = (_H + "<title>MSCAN · Adresses</title>" + STYLE + "</head><body>"
         <div class="ago">{{ c.ts|ago }}</div>
         <div class="acts">
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
-          <a class="ic" title="GMGN" href="https://gmgn.ai/sol/token/{{ c.mint }}" target="_blank">{{ icon('chart') }}</a>
-          <a class="ic" title="DexScreener" href="https://dexscreener.com/solana/{{ c.pair or c.mint }}" target="_blank">{{ icon('trend') }}</a>
+          <a class="ic" title="GMGN" href="{{ gmgnlink(c.chain, c.mint) }}" target="_blank">{{ icon('chart') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
           <button class="ic" title="Copier" onclick="cp(this,'{{ c.mint }}')">{{ icon('copy') }}</button>
         </div>
       </div>
@@ -1705,8 +1708,8 @@ PAGE_FOLLOW = (_H + "<title>MSCAN · Adresses</title>" + STYLE + "</head><body>"
           <div class="ago">{{ c.ts|ago }}</div>
           <div class="acts">
             <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
-            <a class="ic" title="GMGN" href="https://gmgn.ai/sol/token/{{ c.mint }}" target="_blank">{{ icon('chart') }}</a>
-            <a class="ic" title="DexScreener" href="https://dexscreener.com/solana/{{ c.pair or c.mint }}" target="_blank">{{ icon('trend') }}</a>
+            <a class="ic" title="GMGN" href="{{ gmgnlink(c.chain, c.mint) }}" target="_blank">{{ icon('chart') }}</a>
+            <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
             <button class="ic" title="Copier" onclick="cp(this,'{{ c.mint }}')">{{ icon('copy') }}</button>
           </div>
         </div>

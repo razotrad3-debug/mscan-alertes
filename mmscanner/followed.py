@@ -259,6 +259,9 @@ def scan(hours: float = 72, max_coins_per_wallet: int = 8, log=print) -> Dict:
                 continue
             row = {
                 "mint": b["mint"], "ts": b["ts"], "amount": b.get("amount", 0),
+                # sans la chaine, l'interface fabriquait un lien /solana/ pour
+                # une adresse Ethereum : DexScreener repondait "introuvable"
+                "chain": info.get("chain") or "",
                 "name": info.get("name", "?"), "symbol": info.get("symbol", "?"),
                 "mc": info.get("market_cap", 0), "chg_h1": info.get("chg_h1", 0),
                 "chg_h24": info.get("chg_h24", 0), "vol_h24": info.get("vol_h24", 0),
