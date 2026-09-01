@@ -11,7 +11,8 @@ from mmscanner import engine, telegram
 STATE = {"pairs": [], "updated": 0, "scanning": False, "mode": "live", "error": "",
          "progress": {"pct": 0, "phase": "", "detail": ""},
          "followed": {"wallets": [], "coins": [], "available": True, "empty": True},
-         "followed_at": 0, "stale": False}
+         "followed_at": 0, "stale": False,
+         "holdings": None}          # rempli au scan ; sinon relu sur disque
 _LOCK = threading.Lock()
 
 
@@ -296,6 +297,39 @@ def create_app():
                                       active="wallets",
                                       helius=bool(config.HELIUS_API_KEY))
 
+    @app.route("/holdings")
+    def holdings_page():
+        """Ce que les wallets suivis detiennent — coins etablis, pas lancements."""
+        from mmscanner import holdings as hmod
+        with _LOCK:
+            meta = dict(STATE)
+        data = meta.get("holdings") or hmod.load()
+
+        coins = []
+        for c in data.get("coins", []):
+            g = {}
+            for grp in c.get("by", []):
+                g[grp or "Suivi"] = g.get(grp or "Suivi", 0) + 1
+            c = dict(c)
+            c["groups"] = ", ".join(f"{k} ×{v}" if v > 1 else k
+                                    for k, v in sorted(g.items(), key=lambda kv: -kv[1]))
+            coins.append(c)
+
+        tri = request.args.get("tri", "convergence")
+        if tri == "mc":
+            coins.sort(key=lambda c: c.get("mc") or 0, reverse=True)
+        elif tri == "repli":
+            coins.sort(key=lambda c: (c.get("chg_h24") or 0))
+        else:
+            coins.sort(key=lambda c: (c.get("holders", 0), c.get("value_usd", 0)),
+                       reverse=True)
+
+        return render_template_string(PAGE_HOLDINGS, coins=coins, meta=meta,
+                                      tri=tri, updated=data.get("at"),
+                                      nwallets=data.get("wallets", 0),
+                                      active="wallets",
+                                      helius=bool(config.HELIUS_API_KEY))
+
     @app.route("/adresses", methods=["GET", "POST"])
     def adresses():
         from mmscanner import followed as fmod
@@ -487,6 +521,16 @@ def scan_loop(demo: bool = False):
                     print(f"[convergence] {len(fdata.get('coins', []))} coins suivis, {nb} en convergence")
             except Exception as e:
                 print(f"[convergence] {e}")
+
+            # ce que les adresses suivies DETIENNENT (et non ce qu'elles
+            # viennent d'acheter) : coins etablis, lus par vagues, cache 3 h
+            try:
+                from mmscanner import holdings as hmod
+                hdata = hmod.scan()
+                with _LOCK:
+                    STATE["holdings"] = hdata
+            except Exception as e:
+                print(f"[holdings] {e}")
 
             # les smart wallets se mettent a jour tout seuls sur les coins
             # qui viennent de percer (toutes les DISCOVER_INTERVAL_H heures)
@@ -896,6 +940,7 @@ MACROS = r"""
 <div class="subtabs">
   <a href="/wallets" class="{{ 'on' if cur=='detectes' }}">Classement</a>
   <a href="/positions" class="{{ 'on' if cur=='positions' }}">Positions</a>
+  <a href="/holdings" class="{{ 'on' if cur=='holdings' }}">Holdings</a>
   <a href="/flow" class="{{ 'on' if cur=='flow' }}">Flux</a>
   <a href="/adresses" class="{{ 'on' if cur=='adresses' }}">Mes adresses</a>
   <a href="/alertes" class="{{ 'on' if cur=='alertes' }}">Alertes</a>
@@ -1351,6 +1396,58 @@ PAGE_POSITIONS = (_H + "<title>MSCAN · Positions</title>" + STYLE + "</head><bo
   <div class="empty"><span class="big">Aucune position relevée</span>
     Ajoute des adresses dans <b>Mes adresses</b> — leurs achats des 72 dernières heures<br>
     apparaîtront ici, classés par nombre de wallets sur le même coin.</div>
+  {% endif %}
+</div></body></html>""")
+
+
+PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body>"
+                 + MACROS + CHROME + r"""
+<div class="page">
+  {{ subtabs('holdings') }}
+  <div class="sechead"><h1>Ce qu'ils gardent</h1>
+    <span class="sub">portefeuilles des wallets suivis · coins établis, pas des lancements</span></div>
+  <div class="explain"><b>Positions</b> montre ce qu'ils viennent d'acheter. Ici, ce qu'ils <b>détiennent encore</b> :
+    des coins déjà installés, avec une capitalisation et une reconnaissance. Le setup n'est pas le même —
+    on ne cherche pas l'entrée la plus tôt, on cherche <b>un repli sur un coin que le smart money n'a pas lâché</b>.
+    Un coin entre dans la liste dès que <b>2 adresses suivies</b> en portent pour plus de $200 chacune.
+    {% if nwallets %}{{ nwallets }} portefeuilles lus{% endif %}{% if updated %} · relevé {{ updated|ago }}{% endif %}.</div>
+
+  <div class="chips">
+    <a class="chip {{ 'on' if tri=='convergence' }}" href="/holdings">Convergence</a>
+    <a class="chip {{ 'on' if tri=='mc' }}" href="/holdings?tri=mc">Market cap</a>
+    <a class="chip {{ 'on' if tri=='repli' }}" href="/holdings?tri=repli">Repli 24h</a>
+  </div>
+
+  {% if coins %}
+  <div class="rows">
+    {% for c in coins %}
+    <div class="item">
+      <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
+        <div class="gr" style="--gc:var(--gold);color:var(--gold)">{{ c.holders }}</div>
+        <div class="id">
+          <div class="n">{{ c.symbol }}{% if c.dip %} <span style="font-size:9px;letter-spacing:.14em;color:#7cc4ff;border:1px solid rgba(124,196,255,.45);border-radius:var(--r);padding:1px 6px;vertical-align:2px">REPLI</span>{% endif %}</div>
+          <div class="s">{{ c.name }} · {{ c.groups }}</div>
+        </div>
+        <div class="val">
+          <div class="m num">{{ c.mc|fmt }}</div>
+          <div class="c num {{ 'up' if (c.chg_h24 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h24 or 0) }}%</div>
+        </div>
+        <div class="val">
+          <div class="m num" style="font-size:12px;color:var(--gold-2)">{{ c.value_usd|fmt }}</div>
+          <div class="c" style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-4)">détenu</div>
+        </div>
+        <div class="acts">
+          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
+          <a class="ic" title="DexScreener" href="https://dexscreener.com/{{ c.chain or 'solana' }}/{{ c.mint }}" target="_blank">{{ icon('trend') }}</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty"><span class="big">Portefeuilles en cours de lecture</span>
+    Les avoirs sont relus par vagues et gardés 3 h en cache.<br>
+    Reviens dans quelques minutes — ou ajoute des adresses dans <b>Mes adresses</b>.</div>
   {% endif %}
 </div></body></html>""")
 

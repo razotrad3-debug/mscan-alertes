@@ -66,6 +66,15 @@ def one_scan() -> int:
     except Exception as e:
         print(f"[flow] {e}")
 
+    # avoirs des adresses suivies : c'est ce cache que le scanner relit pour
+    # savoir qui detient quoi. Sans ce passage, le critere smart-money
+    # tomberait a zero dans le cloud et les notes s'ecrouleraient.
+    try:
+        from mmscanner import holdings
+        holdings.scan()
+    except Exception as e:
+        print(f"[holdings] {e}")
+
     # rosters de clans en attente de resolution
     try:
         from mmscanner import clans

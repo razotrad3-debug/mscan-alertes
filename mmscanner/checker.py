@@ -60,7 +60,12 @@ def check(mint: str, smart_wallets: Optional[List[str]] = None,
         p.top_holder_pct = conc["top_holder_pct"]
         p.top10_pct = conc["top10_pct"]
         sw = smart_wallets or []
-        sm = helius.smart_money_holding(mint, sw)
+        # meme source que le radar et l'onglet Holdings : sans ca, une fiche
+        # pouvait dire "aucun wallet suivi" sur un coin que trois adresses
+        # detiennent
+        index = helius.build_holdings_index(sw)
+        sm = (helius.smart_money_from_index(mint, index) if index
+              else helius.smart_money_holding(mint, sw))
         p.smart_holders = sm["count"]
         p.smart_names = sm["wallets"]
         from .engine import attach_wallet_detail

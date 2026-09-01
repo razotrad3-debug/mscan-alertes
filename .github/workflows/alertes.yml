@@ -41,6 +41,8 @@ jobs:
             telegram_msgids.json
             insider_seen.json
             pool_cache.json
+            holdings_cache.json
+            holdings.json
             flow_snapshots
           key: mscan-etat-${{ github.run_id }}
           restore-keys: mscan-etat-
@@ -70,5 +72,7 @@ jobs:
             telegram_msgids.json
             insider_seen.json
             pool_cache.json
+            holdings_cache.json
+            holdings.json
             flow_snapshots
           key: mscan-etat-${{ github.run_id }}

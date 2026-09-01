@@ -15,7 +15,7 @@ a = Analysis(
         'mmscanner.discover_wallets', 'mmscanner.followed', 'mmscanner.checker',
         'mmscanner.phases', 'mmscanner.scoring', 'mmscanner.engine',
         'mmscanner.telegram', 'mmscanner.demo', 'mmscanner.whaleflow',
-        'mmscanner.fomoscan', 'mmscanner.telegram_alerts', 'mmscanner.telegram_bot', 'mmscanner.insider_watch', 'mmscanner.safety', 'mmscanner.sources_evm', 'mmscanner.clans', 'mmscanner.fomoscan_web',
+        'mmscanner.fomoscan', 'mmscanner.telegram_alerts', 'mmscanner.telegram_bot', 'mmscanner.insider_watch', 'mmscanner.safety', 'mmscanner.sources_evm', 'mmscanner.clans', 'mmscanner.fomoscan_web', 'mmscanner.holdings',
         'web', 'web.server',
         'dotenv', 'flask', 'jinja2', 'markupsafe', 'werkzeug', 'requests',
         'webview', 'webview.platforms.edgechromium', 'clr_loader', 'pythonnet',

@@ -55,17 +55,21 @@ def _das(method: str, params: dict, tries: int = 2):
 
 def holder_concentration(mint: str, max_pages: int = 6, page_size: int = 1000) -> Dict:
     """
-    Concentration des holders + nombre de holders, via l'API DAS.
+    Concentration des holders : part du 1er porteur et du top 10.
 
-    getTokenLargestAccounts est trop souvent surchargé sur le RPC partagé, et les
-    comptes DAS ne sont pas triés : on pagine donc l'ensemble des token accounts
-    puis on agrège PAR OWNER (un wallet peut avoir plusieurs token accounts).
+    Chemin normal : getTokenSupply + getTokenLargestAccounts + getMultipleAccounts,
+    trois appels RPC standards. L'ancien chemin paginait l'API DAS sur tous les
+    comptes du token (jusqu'a 6 pages de 1 000), ce qui coutait cher et rendait
+    None des que le token depassait 6 000 comptes — donc precisement sur les
+    coins qui marchent. Il ne sert plus que de repli.
 
-    Si le token a plus de holders que ce qu'on peut scanner, on renvoie None
-    plutôt qu'un chiffre faux.
+    Les montants sont agreges PAR PROPRIETAIRE : un wallet peut detenir
+    plusieurs comptes de jetons.
     """
+    from mmscanner import holdings as _h
+
     out = {"top_holder_pct": None, "top10_pct": None, "holders": None}
-    supply = _rpc("getTokenSupply", [mint])
+    supply = _h.rpc("getTokenSupply", [mint])
     if not supply:
         return out
     try:
@@ -76,6 +80,30 @@ def holder_concentration(mint: str, max_pages: int = 6, page_size: int = 1000) -
     if total <= 0:
         return out
 
+    gros = _h.rpc("getTokenLargestAccounts", [mint], essais=1)
+    comptes = (gros or {}).get("value") or []
+    if comptes:
+        montants = {}
+        cles = [c.get("address") for c in comptes if c.get("address")]
+        infos = _h.rpc("getMultipleAccounts",
+                       [cles, {"encoding": "jsonParsed"}], essais=1) or {}
+        proprios = []
+        for it in (infos.get("value") or []):
+            try:
+                proprios.append(it["data"]["parsed"]["info"]["owner"])
+            except Exception:
+                proprios.append(None)
+        for i, c in enumerate(comptes):
+            qte = float((c.get("uiAmount") or 0))
+            if qte <= 0:
+                continue
+            cle = (proprios[i] if i < len(proprios) and proprios[i]
+                   else c.get("address"))
+            montants[cle] = montants.get(cle, 0.0) + qte
+        if montants:
+            return _parts(sorted(montants.values(), reverse=True), total, out)
+
+    # repli : pagination DAS (couteuse, et muette au-dela de max_pages)
     accounts, complete = [], False
     for page in range(1, max_pages + 1):
         res = _das("getTokenAccounts", {
@@ -91,7 +119,7 @@ def holder_concentration(mint: str, max_pages: int = 6, page_size: int = 1000) -
             break
         time.sleep(0.15)
     if not complete or not accounts:
-        return out  # trop de holders pour être fiable
+        return out  # trop de holders pour etre fiable
 
     by_owner: Dict[str, float] = {}
     for a in accounts:
@@ -99,18 +127,22 @@ def holder_concentration(mint: str, max_pages: int = 6, page_size: int = 1000) -
         amt = float(a.get("amount") or 0) / (10 ** decimals)
         if owner and amt > 0:
             by_owner[owner] = by_owner.get(owner, 0.0) + amt
-
     if not by_owner:
         return out
-    amounts = sorted(by_owner.values(), reverse=True)
     out["holders"] = len(by_owner)
+    return _parts(sorted(by_owner.values(), reverse=True), total, out)
 
+
+def _parts(montants: List[float], total: float, out: Dict) -> Dict:
+    """Top 1 et top 10 en part du supply, pool de liquidite mis de cote."""
+    if not montants or total <= 0:
+        return out
     # heuristique LP : un compte unique > 30% du supply est presque toujours le pool
-    filtered = amounts[1:] if (amounts[0] / total) > 0.30 else amounts
-    if not filtered:
-        filtered = amounts
-    out["top_holder_pct"] = round(filtered[0] / total, 4)
-    out["top10_pct"] = round(sum(filtered[:10]) / total, 4)
+    filtres = montants[1:] if (montants[0] / total) > 0.30 else montants
+    if not filtres:
+        filtres = montants
+    out["top_holder_pct"] = round(filtres[0] / total, 4)
+    out["top10_pct"] = round(sum(filtres[:10]) / total, 4)
     return out
 
 
@@ -186,7 +218,16 @@ def holdings_of(address: str, limit: int = 1000) -> set:
 
 
 def build_holdings_index(wallets, log=None) -> dict:
-    """{adresse: {mints}} pour tous les wallets suivis (Solana uniquement)."""
+    """
+    {adresse: {"label", "mints"}} pour tous les wallets suivis (Solana).
+
+    Lecture du cache partage avec le module holdings, rempli par vagues apres
+    chaque scan via getTokenAccountsByOwner. On ne fait donc aucun appel DAS
+    ici : getAssetsByOwner etait appele pour chaque wallet a chaque scan, soit
+    l'essentiel du quota Helius pour une information qui bouge lentement.
+    """
+    from mmscanner import holdings as _h
+
     cibles = []
     for w in wallets or []:
         w = w.strip()
@@ -197,17 +238,17 @@ def build_holdings_index(wallets, log=None) -> dict:
             label = w[len(addr):].strip(" -	")
             cibles.append((addr, label))
 
+    avoirs = _h.portefeuilles([a for a, _ in cibles], refresh=False)
     index = {}
-    def _un(c):
-        addr, label = c
-        return addr, label, holdings_of(addr)
-
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        for addr, label, mints in ex.map(_un, cibles):
-            index[addr] = {"label": label, "mints": mints}
+    for addr, label in cibles:
+        mints = avoirs.get(addr)
+        if mints is None:
+            continue                      # aimant a spam, ou jamais lu encore
+        index[addr] = {"label": label, "mints": set(mints)}
     if log:
         total = sum(len(v["mints"]) for v in index.values())
-        log(f"[index] {len(index)} wallets, {total} positions lues")
+        log(f"[index] {len(index)}/{len(cibles)} wallets connus, "
+            f"{total} positions (cache)")
     return index
 
 

@@ -22,3 +22,5 @@ clans_state.json
 clans/
 telegram_msgids.json
 insider_seen.json
+holdings_cache.json
+holdings.json
