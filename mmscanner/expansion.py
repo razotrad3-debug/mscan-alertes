@@ -8,10 +8,16 @@ qui trade la seconde jambe.
 
 Cette veille prend le probleme a l'envers. On arme d'abord les coins de
 qualite — ceux ou une adresse suivie vient d'entrer, ceux que le radar a
-notes — puis on surveille leur prix toutes les 60 s. L'alerte part sur la
-PREMIERE impulsion : une bougie de 5 minutes qui decolle alors que l'heure
-est encore calme. Le coin est deja passe par les memes filtres de qualite,
-on ne fait que le prendre plus tot.
+notes — puis on suit leur prix toutes les 60 s, en deux temps :
+
+  1. l'IMPULSION : la premiere expansion, qu'on note sans rien envoyer, en
+     retenant le plus haut atteint ;
+  2. le REPLI : quand le prix redescend de 18 a 50 % sous ce haut et que la
+     baisse se calme, l'alerte part. C'est la zone d'entree de la seconde
+     expansion, celle qui se trade.
+
+On ne signale donc jamais une bougie en train de monter : le message arrive
+quand il y a quelque chose a faire.
 """
 import json
 import os
@@ -22,12 +28,16 @@ import config
 
 WATCH_FILE = config.path("expansion_watch.json")
 
-FENETRE_H = 8.0          # duree pendant laquelle un coin arme reste surveille
-SEUIL_M5 = 22.0          # % sur 5 min : le depart
-PLAFOND_H1 = 260.0       # au-dela, la premiere jambe est deja faite
+FENETRE_H = 10.0         # duree pendant laquelle un coin arme reste surveille
+SEUIL_M5 = 20.0          # % sur 5 min qui signale l'impulsion
+IMPULSION_X = 1.45       # ou : le MC a pris 45 % sur sa base depuis l'armement
+RETRACE_MIN = 0.18       # repli minimum sous le haut pour parler d'entree
+RETRACE_MAX = 0.50       # au-dela, ce n'est plus un repli mais un abandon
+STAB_M5 = -6.0           # la chute doit se calmer : pas de couteau qui tombe
+MARGE_BASE = 1.12        # le repli doit rester au-dessus de la base de depart
 MIN_LIQ = 12_000.0
-MIN_VOL_M5 = 3_000.0     # dollars vraiment echanges sur la bougie
-MIN_ACHATS_M5 = 10       # une impulsion, pas un ordre isole
+MIN_VOL_M5 = 1_500.0     # dollars echanges sur la bougie du repli
+MIN_ACHATS_M5 = 5        # des acheteurs reviennent deja
 COOLDOWN_H = 12.0        # on ne resignale pas le meme coin avant ca
 MAX_SURVEILLES = 220
 
@@ -98,27 +108,38 @@ def _message(e: dict, d: dict) -> str:
     pastille = tg.PASTILLE.get(chain, "⚪")
     titre = tg._esc(d.get("symbol") or e.get("symbol") or "?")
     mc = d.get("mc") or 0.0
+    haut = e.get("haut_mc") or mc
+    base = e.get("base_mc") or 0.0
+    repli = (1 - mc / haut) * 100 if haut else 0.0
+    depuis = max(0, (time.time() - (e.get("impulsion_at") or 0)) / 60.0)
 
+    # stop sous la base de l'impulsion : si le prix y revient, la jambe a
+    # echoue. Jamais plus loin que -30 % pour que le risque reste tenable.
+    sl = max(base * 0.95, mc * 0.70)
     t1p, t2p, t3p = _target_mults(mc)
-    t1, t2, t3 = mc * (1 + t1p), mc * (1 + t2p), mc * (1 + t3p)
-    age = max(0, (time.time() - (e.get("at") or 0)) / 60.0)
+    t1 = max(haut, mc * (1 + t1p))          # premier objectif : le haut repris
+    t2, t3 = mc * (1 + t2p), mc * (1 + t3p)
+
+    def _gain(v):
+        return f"`{tg._usd(v)}` (+{(v / mc - 1) * 100:.0f}%)" if mc else f"`{tg._usd(v)}`"
 
     lignes = [
-        f"{pastille} *{titre}* — 1re EXPANSION",
-        f"{label} · repéré il y a {age:.0f} min",
+        f"{pastille} *{titre}* — REPLI APRES 1re EXPANSION",
+        f"{label} · impulsion il y a {depuis:.0f} min",
         "",
-        f"- Market Cap : `{tg._usd(mc)}`",
+        f"- Market Cap : `{tg._usd(mc)}`  (haut : `{tg._usd(haut)}`)",
+        f"- Repli : `-{repli:.0f}%` sous le haut",
         f"- 5 min : `{d.get('chg_m5', 0):+.0f}%`  ·  1h : `{d.get('chg_h1', 0):+.0f}%`",
         "",
-        "- Entry : `-20 a -30% du MC`",
-        f"- SL : `{tg._usd(mc * 0.70)}`",
+        "- Entry : `ici, sur le repli`",
+        f"- SL : `{tg._usd(sl)}`",
         "",
-        f"- TP1 : `{tg._usd(t1)}` (+{t1p * 100:.0f}%)",
-        f"  TP2 : `{tg._usd(t2)}` (+{t2p * 100:.0f}%)",
-        f"  TP3 : `{tg._usd(t3)}` (+{t3p * 100:.0f}%)",
+        f"- TP1 : {_gain(t1)}",
+        f"  TP2 : {_gain(t2)}",
+        f"  TP3 : {_gain(t3)}",
         "",
-        "Premiere impulsion en cours — n'entre pas dessus.",
-        "La seconde expansion se joue apres le repli.",
+        "La premiere expansion est passee, le repli se calme.",
+        "C'est la seconde expansion qui se joue ici.",
     ]
     groupes = e.get("groupes") or []
     if groupes:
@@ -147,13 +168,11 @@ def poll(log=print) -> int:
 
     maintenant = time.time()
     limite = maintenant - FENETRE_H * 3600
-    # on oublie les coins armes depuis trop longtemps : passe ce delai, ce
-    # n'est plus un depart qu'on guette mais un coin qui n'a rien fait
     vivants = {m: e for m, e in d.items() if (e.get("at") or 0) >= limite}
     if len(vivants) != len(d):
         d = vivants
-        _ecrire(d)
     if not d:
+        _ecrire(d)
         return 0
 
     mints = list(d)[:MAX_SURVEILLES]
@@ -165,22 +184,49 @@ def poll(log=print) -> int:
         if not x:
             continue
         e["mint"] = m
-        dernier = e.get("alerte_at") or 0
-        if maintenant - dernier < COOLDOWN_H * 3600:
+        mc = x.get("mc") or 0.0
+        if mc <= 0:
             continue
 
-        # le depart : la bougie de 5 min decolle, l'heure est encore calme
-        if x.get("chg_m5", 0) < SEUIL_M5:
+        # ── temps 1 : on cherche l'impulsion, sans rien envoyer
+        if not e.get("impulsion_at"):
+            base = e.get("base_mc") or mc
+            e["base_mc"] = min(base, mc)          # la base, c'est le plus bas vu
+            impulsion = (x.get("chg_m5", 0) >= SEUIL_M5
+                         or mc >= e["base_mc"] * IMPULSION_X)
+            if impulsion:
+                e["impulsion_at"] = maintenant
+                e["haut_mc"] = mc
+                log(f"[expansion] {x.get('symbol')} : impulsion reperee "
+                    f"({tg._usd(e['base_mc'])} -> {tg._usd(mc)})")
             continue
-        if x.get("chg_h1", 0) > PLAFOND_H1:
+
+        # ── temps 2 : l'impulsion est passee, on attend le repli
+        e["haut_mc"] = max(e.get("haut_mc") or mc, mc)
+        haut, base = e["haut_mc"], e.get("base_mc") or 0.0
+
+        if base and mc <= base * MARGE_BASE:
+            # tout est rendu : la jambe a echoue, on desarme
+            log(f"[expansion] {x.get('symbol')} : repli complet, abandonne")
+            d.pop(m, None)
             continue
-        # une vraie impulsion, pas un ordre isole sur un pool vide
+
+        if maintenant - (e.get("alerte_at") or 0) < COOLDOWN_H * 3600:
+            continue
+
+        repli = 1 - mc / haut if haut else 0.0
+        if not (RETRACE_MIN <= repli <= RETRACE_MAX):
+            continue
+        # un couteau qui tombe n'est pas une entree : la baisse doit se calmer
+        if x.get("chg_m5", 0) < STAB_M5:
+            continue
         if x.get("liquidity_usd", 0) < MIN_LIQ:
             continue
         if x.get("vol_m5", 0) < MIN_VOL_M5:
             continue
         if x.get("achats_m5", 0) < MIN_ACHATS_M5:
             continue
+
         # memes garde-fous que partout ailleurs
         if not is_crypto_native(x.get("symbol"), x.get("name"), m):
             continue
@@ -199,8 +245,8 @@ def poll(log=print) -> int:
         if tg.send(_message(e, x)):
             envoyees += 1
             e["alerte_at"] = maintenant
-            log(f"[expansion] {x.get('symbol')} — {x.get('chg_m5', 0):+.0f}% "
-                f"sur 5 min, 1h a {x.get('chg_h1', 0):+.0f}%")
+            log(f"[expansion] {x.get('symbol')} — repli de {repli*100:.0f}% "
+                f"sous {tg._usd(haut)}, 5 min a {x.get('chg_m5', 0):+.0f}%")
 
     _ecrire(d)
     return envoyees
@@ -210,4 +256,5 @@ def etat() -> dict:
     """Ce qui est sous surveillance — affiche dans l'interface."""
     d = _lire()
     return {"surveilles": len(d),
+            "impulsions": sum(1 for e in d.values() if e.get("impulsion_at")),
             "alertes": sum(1 for e in d.values() if e.get("alerte_at"))}
