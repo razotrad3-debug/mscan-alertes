@@ -168,19 +168,21 @@ def _comptes_evm(addr: str):
     """
     Avoirs d'une adresse EVM, chaine par chaine.
 
-    Blockscout rend le solde ET un cours pour chaque jeton : on peut donc
-    ecarter la poussiere tout de suite, sans passer par DexScreener. Un wallet
-    Robinhood porte couramment 800 lignes dont l'essentiel ne vaut rien.
+    Retour : (quantites, chaine_de_chaque_mint, chaines_qui_ont_repondu).
 
-    Retour : ({mint: quantite}, {mint: chaine}) ou None si tout a echoue.
+    Le troisieme element est essentiel. Une chaine qui echoue ne doit jamais
+    effacer ce qu'on savait d'elle : XbtPika detenait 19,8 M de microduck sur
+    Robinhood et une ligne sur Ethereum. Le jour ou Robinhood n'a pas repondu,
+    la lecture "reussie" ne contenait plus que la ligne Ethereum, et ce
+    portefeuille vide de l'essentiel a ete grave pour trois heures. Le coin a
+    disparu du classement alors qu'un wallet suivi en tenait 709 000 $.
     """
     from mmscanner import sources_evm as evm
 
-    qtes, chaines, ok = {}, {}, False
+    qtes, chaines, repondu = {}, {}, set()
     for chaine in CHAINES_EVM:
-        hotes = evm.ENDPOINTS.get(chaine) or []
-        for h in hotes:
-            if h["kind"] != "blockscout" or not evm._alive(h["base"]):
+        for h in (evm.ENDPOINTS.get(chaine) or []):
+            if h["kind"] != "blockscout":
                 continue
             try:
                 r = _SESSION.get(
@@ -189,9 +191,8 @@ def _comptes_evm(addr: str):
                 r.raise_for_status()
                 lignes = r.json() or []
             except Exception:
-                evm._mark_dead(h["base"])
                 continue
-            ok = True
+            repondu.add(chaine)
             for it in lignes:
                 t = it.get("token") or {}
                 mint = t.get("address_hash") or t.get("address")
@@ -211,7 +212,7 @@ def _comptes_evm(addr: str):
                 qtes[mint] = qtes.get(mint, 0.0) + q
                 chaines[mint] = chaine
             break
-    return (qtes, chaines) if ok else None
+    return (qtes, chaines, repondu) if repondu else None
 
 
 def _comptes(addr: str):
@@ -321,9 +322,19 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                     e["at"] = time.time() - (TTL_H * 3600 - recul)
                     cache[a] = e
                     continue
-                chaines = {}
+                chaines, repondu = {}, None
                 if isinstance(mints, tuple):        # lecture EVM
-                    mints, chaines = mints
+                    mints, chaines, repondu = mints
+                    # une chaine muette ne doit pas effacer ce qu'on savait
+                    # d'elle : on recolle ses anciennes lignes
+                    manquantes = set(CHAINES_EVM) - repondu
+                    ancien = cache.get(a) or {}
+                    if manquantes and ancien.get("mints"):
+                        vieilles = ancien.get("chains") or {}
+                        for m, q in ancien["mints"].items():
+                            if vieilles.get(m) in manquantes:
+                                mints.setdefault(m, q)
+                                chaines.setdefault(m, vieilles[m])
                 # Une lecture vide n'est pas un fait, c'est presque toujours
                 # un blocage passager de l'explorateur. La croire revenait a
                 # ecrire "ce wallet ne detient rien" pour trois heures : onze
@@ -348,6 +359,10 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                                 "mints": mints}
                     if chaines:
                         cache[a]["chains"] = chaines
+                    # lecture incomplete : on la garde, mais on repasse vite
+                    if repondu is not None and len(repondu) < len(CHAINES_EVM):
+                        cache[a]["at"] = time.time() - (TTL_H * 3600 - 900)
+                        cache[a]["partiel"] = sorted(set(CHAINES_EVM) - repondu)
                 # ecriture au fil de l'eau : un arret en plein passage faisait
                 # perdre les quatre minutes de lecture deja faites
                 if (lus + spam) % 8 == 0:
