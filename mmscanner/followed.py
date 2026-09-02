@@ -469,7 +469,19 @@ def recent_mints(hours: float = 48) -> list:
             d = json.load(f)
     except Exception:
         return []
+    # Ici on ne filtre que sur la nature du jeton : ces coins partent au scan
+    # pour y etre NOTES comme les autres, et c'est la note qui decide. Poser
+    # un seuil de liquidite avant l'analyse reviendrait a juger a leur place.
+    from .engine import is_crypto_native
     limite = time.time() - hours * 3600
-    return [c["mint"] for c in d.get("coins", [])
-            if c.get("mint") and (c.get("ts") or 0) >= limite
-            and _jouable(c, c["mint"])]
+    out = []
+    for c in d.get("coins", []):
+        m, ts = c.get("mint"), c.get("ts") or 0
+        if not m or ts < limite:
+            continue
+        if not is_crypto_native(c.get("symbol"), c.get("name"), m):
+            continue
+        if (c.get("mc") or 0) > MAX_MC_JOUABLE:
+            continue
+        out.append(m)
+    return out
