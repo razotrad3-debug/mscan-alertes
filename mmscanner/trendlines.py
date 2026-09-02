@@ -63,7 +63,14 @@ MAX_LIGNES = 300
 OUTILS = {
     "LineToolTrendLine", "LineToolRay", "LineToolExtended",
     "LineToolHorzLine", "LineToolHorzRay",
+    "LineToolFibRetracement",
 }
+
+# Le golden pocket du cours. Ce ne sont pas deux traits mais UNE zone : a
+# 0,618 et 0,65 pres, deux alertes partiraient coup sur coup sur un petit
+# mouvement, et sur un gros mouvement un seul niveau median raterait les
+# bords. On garde donc les deux bornes et on surveille l'intervalle.
+FIB_RATIOS = (0.618, 0.65)
 
 
 # ── etat sur disque ────────────────────────────────────────────────
@@ -242,14 +249,25 @@ def enregistrer(charge: dict) -> dict:
         else:
             facteur = 1.0
 
+        # Fibonacci : les deux ancres decrivent le mouvement, pas un trait.
+        # On en tire la zone 0,618-0,65, qui ne bouge pas avec le temps.
+        zb = zh = None
+        if outil == "LineToolFibRetracement":
+            if len(pts) < 2:
+                continue
+            (_, va), (_, vb) = pts[0], pts[1]
+            niv = [vb + r * (va - vb) for r in FIB_RATIOS]
+            zb, zh = min(niv), max(niv)
+
         cle = _cle(infos["chain"], pair, pts)
         vieille = anciennes.get(cle) or {}
         gardees[cle] = {
             "chain": infos["chain"], "pair": pair, "mint": infos["mint"],
             "symbol": infos["symbol"], "outil": outil,
-            "t1": pts[0][0], "v1": pts[0][1],
-            "t2": pts[1][0] if len(pts) == 2 else None,
-            "v2": pts[1][1] if len(pts) == 2 else None,
+            "t1": pts[0][0], "v1": zb if zb is not None else pts[0][1],
+            "t2": None if zb is not None else (pts[1][0] if len(pts) == 2 else None),
+            "v2": None if zb is not None else (pts[1][1] if len(pts) == 2 else None),
+            "zb": zb, "zh": zh,
             "facteur": facteur, "unite": unite,
             "cree": vieille.get("cree") or maintenant,
             "vu": maintenant,
@@ -279,8 +297,38 @@ def enregistrer(charge: dict) -> dict:
 
 
 # ── geometrie ──────────────────────────────────────────────────────
+def bornes(l: dict) -> Optional[tuple]:
+    """Zone Fibonacci convertie, ou None si la ligne n'en est pas une."""
+    zb, zh, f = l.get("zb"), l.get("zh"), l.get("facteur") or 0
+    if zb is None or zh is None or f <= 0:
+        return None
+    return zb * f, zh * f
+
+
+def ecart(l: dict, valeur: float) -> Optional[float]:
+    """
+    De combien le prix est-il a cote de la ligne ? Zero s'il est dedans.
+
+    Une trendline est un trait : l'ecart se mesure a ce trait. Une zone Fib a
+    une epaisseur : tant qu'on est dedans, on est arrive.
+    """
+    z = bornes(l)
+    if z:
+        bas, haut = z
+        if valeur > haut:
+            return valeur / haut - 1.0
+        if valeur < bas:
+            return valeur / bas - 1.0
+        return 0.0
+    n = niveau(l)
+    return (valeur / n - 1.0) if n and n > 0 else None
+
+
 def niveau(l: dict, t: float = None) -> Optional[float]:
     """Market cap ou passe la ligne a l'instant t. C'est tout le calcul."""
+    z = bornes(l)
+    if z:
+        return (z[0] + z[1]) / 2.0        # le milieu du golden pocket
     t = t or time.time()
     t1, v1, t2, v2 = l.get("t1"), l.get("v1"), l.get("t2"), l.get("v2")
     if not t1 or not v1:
@@ -351,18 +399,27 @@ def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
     unite = l.get("unite") or "mc"
     quoi = "Prix" if unite == "prix" else "Market Cap"
     # Au-dessus de la ligne, le prix descend dessus ; en dessous, il remonte.
-    # C'est le sens de l'approche, pas celui de la bougie.
-    sens = "Crossing Down" if ecart >= 0 else "Crossing Up"
+    # C'est le sens de l'approche, pas celui de la bougie. Dans une zone Fib
+    # l'ecart est nul : on tranche alors sur la derniere heure.
+    if ecart > 0:
+        sens = "Crossing Down"
+    elif ecart < 0:
+        sens = "Crossing Up"
+    else:
+        sens = "Crossing Down" if (x.get("chg_h1") or 0) <= 0 else "Crossing Up"
 
+    z = bornes(l)
     corps = [
         f"🟠 *{titre}*",
-        f"{label} · Trendline touch",
+        f"{label} · " + ("Fib 0.618-0.65 touch" if z else "Trendline touch"),
         "",
         f"- {sens}",
         f"- {quoi} : `{_val(val, unite)}`",
-        "",
-        "Le prix revient sur la ligne que tu as tracee.",
     ]
+    if z:
+        corps.append(f"- Zone : `{_val(z[0], unite)}` - `{_val(z[1], unite)}`")
+    corps += ["", "Le prix revient dans ta zone Fib." if z
+                  else "Le prix revient sur la ligne que tu as tracee."]
     cible = x.get("pair") or l.get("pair") or l.get("mint")
     corps += ["", f"[DexScreener]({dex_link(chain, cible)})"
                   f" · [GMGN]({gmgn_link(chain, l.get('mint'))})"]
@@ -381,7 +438,14 @@ def poll(log=print, envoyer: bool = None) -> int:
     from mmscanner import holdings, telegram_alerts as tg
 
     if envoyer is None:
-        envoyer = tg.enabled()
+        # Une seule des deux machines doit envoyer, sinon chaque touche part
+        # en double. Le passage de relais est EXPLICITE : tant que
+        # MSCAN_CLOUD_LIGNES n'est pas pose, l'application garde la charge.
+        # Une cle presente ne suffit pas — elle ne prouve pas que le secret
+        # est en place cote GitHub, et un silence se remarque bien plus tard
+        # qu'un doublon.
+        cloud = (os.getenv("MSCAN_CLOUD_LIGNES") or "").strip().lower()             in ("1", "true", "oui", "yes")
+        envoyer = tg.enabled() and (bool(os.getenv("MSCAN_HEADLESS")) or not cloud)
 
     d = _lire()
     if not d:
@@ -406,19 +470,27 @@ def poll(log=print, envoyer: bool = None) -> int:
             continue
         val = (x.get("price_usd") if l.get("unite") == "prix" else x.get("mc")) or 0.0
         n = niveau(l, maintenant)
-        if val <= 0 or not n or n <= 0:
+        e = ecart(l, val) if val > 0 else None
+        if val <= 0 or not n or n <= 0 or e is None:
             continue
-        ecart = val / n - 1.0
-        if abs(ecart) > HORS_JEU:
+        if abs(e) > HORS_JEU:
             continue
 
         # rearmement : la ligne doit s'etre eloignee pour pouvoir resonner
-        if abs(ecart) >= APPROCHE:
+        if abs(e) >= APPROCHE:
             if not l.get("arme"):
                 l["arme"] = True
                 change = True
             continue
-        if abs(ecart) > TOLERANCE or not l.get("arme"):
+        # premier tour du processus : on ne fait qu'observer. Sans ca, une
+        # ligne sur laquelle le prix traine deja sonnerait des le demarrage,
+        # sans que rien ne soit venu la toucher.
+        if not _AMORCE["fait"]:
+            if l.get("arme"):
+                l["arme"] = False
+                change = True
+            continue
+        if abs(e) > TOLERANCE or not l.get("arme"):
             continue
         if maintenant - (l.get("dernier_signal") or 0) < COOLDOWN_H * 3600:
             continue
@@ -430,14 +502,16 @@ def poll(log=print, envoyer: bool = None) -> int:
         change = True
         log(f"[trendlines] {x.get('symbol')} touche sa ligne "
             f"({val:.6g} vs {n:.6g})")
-        if envoyer and tg.send(_message(l, x, val, n, ecart)):
+        if envoyer and tg.send(_message(l, x, val, n, e)):
             envoyees += 1
 
+    _AMORCE["fait"] = True
     if change:
         _ecrire(d)
     return envoyees
 
 
+_AMORCE = {"fait": False}
 _BOUCLE = {"on": False}
 
 
@@ -453,3 +527,130 @@ def boucle(log=print, cadence: float = 60.0) -> None:
         except Exception as e:
             log(f"[trendlines] {e}")
         time.sleep(max(5.0, cadence - (time.time() - debut)))
+
+
+# ── publication vers le cloud ──────────────────────────────────────
+# Tes lignes doivent atteindre le bot qui tourne sur GitHub. Le depot est
+# PUBLIC — c'est d'ailleurs pour ca que les listes de wallets n'y sont pas —
+# donc on n'y pose jamais les lignes en clair : sur quels coins tu es et a
+# quels niveaux tu comptes entrer, c'est precisement ce qui ne doit pas se
+# lire. Le fichier publie est chiffre ; sans la cle, c'est du bruit.
+DEPOT = "razotrad3-debug/mscan-alertes"
+FICHIER_ENC = "trendlines.enc"
+URL_ENC = f"https://raw.githubusercontent.com/{DEPOT}/main/{FICHIER_ENC}"
+DELAI_PUBLI_S = 30.0
+_PUBLI = {"at": 0.0, "empreinte": ""}
+
+
+def cle_secrete() -> Optional[bytes]:
+    v = (os.getenv("MSCAN_LIGNES_KEY") or "").strip()
+    return v.encode() if v else None
+
+
+def _boite():
+    from cryptography.fernet import Fernet
+    cle = cle_secrete()
+    return Fernet(cle) if cle else None
+
+
+def _racine_depot() -> Optional[str]:
+    d = os.path.abspath(config.APP_DIR)
+    for _ in range(4):
+        if os.path.isdir(os.path.join(d, ".git")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return None
+
+
+def publier(log=print) -> bool:
+    """
+    Chiffre les lignes et les pousse sur le depot, pour que le cloud les voie.
+
+    Sans cle, on ne publie rien du tout : mieux vaut pas de cloud que des
+    setups lisibles par n'importe qui.
+    """
+    boite = _boite()
+    if boite is None:
+        return False
+    racine = _racine_depot()
+    if not racine:
+        return False
+
+    brut = json.dumps(_lire(), sort_keys=True).encode()
+    empreinte = hashlib.sha1(brut).hexdigest()
+    maintenant = time.time()
+    if empreinte == _PUBLI["empreinte"]:
+        return False                       # rien de neuf
+    if maintenant - _PUBLI["at"] < DELAI_PUBLI_S:
+        return False                       # on ne pousse pas a chaque trait
+
+    chemin = os.path.join(racine, FICHIER_ENC)
+    try:
+        with open(chemin, "wb") as f:
+            f.write(boite.encrypt(brut))
+    except Exception as e:
+        log(f"[trendlines] ecriture chiffree : {e}")
+        return False
+
+    import subprocess
+    def git(*args):
+        return subprocess.run(("git",) + args, cwd=racine, capture_output=True,
+                              text=True, timeout=90)
+    try:
+        # on ne commite QUE ce fichier : le reste du depot ne nous regarde pas
+        git("add", FICHIER_ENC)
+        r = git("commit", FICHIER_ENC, "-m", "lignes")
+        if r.returncode != 0 and "nothing to commit" not in (r.stdout or ""):
+            log(f"[trendlines] commit : {(r.stdout or r.stderr)[:120]}")
+            return False
+        r = git("push", "origin", "HEAD")
+        if r.returncode != 0:
+            log(f"[trendlines] push : {(r.stderr or '')[:120]}")
+            return False
+    except Exception as e:
+        log(f"[trendlines] git : {e}")
+        return False
+
+    _PUBLI.update(at=maintenant, empreinte=empreinte)
+    log("[trendlines] lignes publiees (chiffrees)")
+    return True
+
+
+def rapatrier(log=print) -> int:
+    """
+    Cote cloud : va chercher les lignes publiees et les fusionne.
+
+    L'armement et le cooldown appartiennent a CE processus — ils decrivent ce
+    qu'il a deja vu, pas ce que la machine de l'utilisateur a vu. On les garde
+    donc, et on ne prend du fichier distant que les lignes elles-memes.
+    """
+    boite = _boite()
+    if boite is None:
+        return 0
+    try:
+        r = _SESSION.get(URL_ENC, timeout=25)
+        if r.status_code == 404:
+            return 0
+        r.raise_for_status()
+        distant = json.loads(boite.decrypt(r.content).decode())
+    except Exception as e:
+        log(f"[trendlines] rapatriement : {e}")
+        return 0
+    if not isinstance(distant, dict):
+        return 0
+
+    local = _lire()
+    fusion = {}
+    for cle, l in distant.items():
+        vieille = local.get(cle) or {}
+        l = dict(l)
+        l["arme"] = vieille.get("arme", l.get("arme", True))
+        l["dernier_signal"] = vieille.get("dernier_signal") or 0
+        fusion[cle] = l
+    if fusion != local:
+        _ecrire(fusion)
+        log(f"[trendlines] {len(fusion)} ligne(s) rapatriee(s)")
+    return len(fusion)

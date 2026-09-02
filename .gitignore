@@ -26,3 +26,7 @@ holdings_cache.json
 holdings.json
 expansion_watch.json
 paires_nees.json
+# les lignes en clair ne quittent JAMAIS la machine : le depot est
+# public, seul le fichier chiffre y a sa place
+trendlines.json
+trendlines_*.json

@@ -175,6 +175,12 @@ def main():
                 expansion.poll()
             except Exception as e:
                 print(f"[expansion] {e}")
+            try:
+                from mmscanner import trendlines
+                trendlines.rapatrier()
+                trendlines.poll()
+            except Exception as e:
+                print(f"[trendlines] {e}")
             # cadence de 60 s quoi qu'il arrive, meme si le tour a ete long
             time.sleep(max(5, 60 - (time.time() - debut)))
 

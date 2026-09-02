@@ -550,7 +550,12 @@ def create_app():
             return _ouvrir(app.make_response(("", 204)))
         if request.method == "POST":
             charge = request.get_json(force=True, silent=True) or {}
-            return _ouvrir(jsonify(trendlines.enregistrer(charge)))
+            res = trendlines.enregistrer(charge)
+            if res.get("ok"):
+                # publication chiffree vers le depot, en tache de fond : le
+                # navigateur n'a pas a attendre un git push
+                threading.Thread(target=trendlines.publier, daemon=True).start()
+            return _ouvrir(jsonify(res))
         # GET sert aussi de signature : c'est ainsi que le script trouve le
         # bon port, l'app ne tournant pas toujours sur le meme
         return _ouvrir(jsonify({"app": "mscan", "lignes": trendlines.lignes()}))
