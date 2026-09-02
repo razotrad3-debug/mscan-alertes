@@ -35,7 +35,11 @@ MIN_ACHETEURS = 2       # deux adresses au moins, pas une
 MAX_CHG_H1 = 60.0       # au-dela l'entree est passee : on ne chase pas
 MAX_CHG_H24 = 300.0
 MIN_CHG_H24 = -25.0     # deja en train de couler : on laisse tomber
-MIN_MC = 50_000         # sous ca il n'y a rien a trader
+# Mesure faite sur 4 h de vraies entrees : les coins qui se sont effondres de
+# 92 % avaient tous 3 400 $ de liquidite, ceux qui tenaient en avaient 26 000
+# a 61 000. C'est la liquidite qui separe, pas la capitalisation — un plancher
+# de capitalisation a 50 000 $ ne faisait qu'ecarter les entrees precoces.
+MIN_MC = 20_000
 MIN_LIQ = 15_000
 MAX_PAR_HEURE = 4       # plafond global, quoi qu'il arrive
 EVM_TOUS_LES_S = 300.0     # cadence des adresses EVM (3 requetes chacune)
