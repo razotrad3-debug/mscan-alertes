@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MSCAN — mes trendlines
 // @namespace    mscan
-// @version      1.0
+// @version      1.1
 // @description  Envoie a MSCAN les trendlines que tu traces sur DexScreener
 // @match        https://dexscreener.com/*
 // @match        https://www.dexscreener.com/*
@@ -26,10 +26,10 @@
   var PORTS = [];
   for (var i = 0; i < 20; i++) PORTS.push(8787 + i);
 
-  var port = null;          // port ou repond MSCAN, trouve une fois
-  var derniere = "";        // derniere signature envoyee
-  var stable = null;        // signature vue au tour precedent
-  var vuNonVide = {};       // paires ou l'on a deja vu des traces
+  var port = null; // port ou repond MSCAN, trouve une fois
+  var derniere = ""; // derniere signature envoyee
+  var stable = null; // signature vue au tour precedent
+  var vuNonVide = {}; // paires ou l'on a deja vu des traces
 
   // ── transport ────────────────────────────────────────────────────
   // GM_xmlhttpRequest passe par l'extension : ni CORS ni blocage
@@ -74,7 +74,7 @@
     try {
       m = f.contentWindow.chartWidgetCollection
            .activeChartWidget.value().model().m_model;
-    } catch (e) { return null; }          // chart pas encore pret
+    } catch (e) { return null; } // chart pas encore pret
 
     var out = [];
     var srcs;
@@ -125,7 +125,7 @@
     var chain = mm[1], pair = mm[2];
 
     var lignes = lireLignes();
-    if (lignes === null) return;                    // chart pas pret
+    if (lignes === null) return; // chart pas pret
 
     if (lignes.length) vuNonVide[pair] = true;
     // ne jamais effacer ce que MSCAN garde tant qu'on n'a pas vu de traces
@@ -152,7 +152,7 @@
         dire("MSCAN · " + ((r && r.erreur) || "refus"), false);
       }
     } catch (e) {
-      port = null;                                   // l'app a peut-etre ferme
+      port = null; // l'app a peut-etre ferme
       dire("MSCAN · envoi impossible", false);
     }
   }

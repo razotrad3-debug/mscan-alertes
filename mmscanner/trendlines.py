@@ -355,7 +355,7 @@ def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
 
     corps = [
         f"{pastille} *{titre}*",
-        f"{label} · Touche de ta ligne",
+        f"{label} · Trendline touch",
         "",
         f"- {quoi} : `{_val(val, unite)}`",
         f"- Ta ligne : `{_val(n, unite)}`  (`{ecart*100:+.1f}%` {cote})",
