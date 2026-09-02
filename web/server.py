@@ -1439,7 +1439,7 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
     <a class="chip {{ 'on' if tri=='conviction' }}" href="/holdings?tri=conviction">Conviction</a>
     <a class="chip {{ 'on' if tri=='mc' }}" href="/holdings?tri=mc">Market cap</a>
     <a class="chip {{ 'on' if tri=='dollars' }}" href="/holdings?tri=dollars">Dollars détenus</a>
-    <a class="chip gold {{ 'on' if tri=='fomo' }}" href="/holdings?tri=fomo">FOMO</a>
+    <a class="chip {{ 'on' if tri=='fomo' }}" href="/holdings?tri=fomo">FOMO</a>
     <a class="chip {{ 'on' if tri=='solo' }}" href="/holdings?tri=solo">Tenu par 1</a>
   </div>
 
