@@ -312,10 +312,11 @@ def create_app():
                 grp = grp or "Suivi"
                 g[grp] = g.get(grp, 0) + 1
             # ordre canonique : la provenance se lit toujours au meme endroit
-            c["groupes"] = [
-                {"nom": k, "n": v, "couleur": config.COULEUR_GROUPE.get(k, "#7a7a82")}
-                for k, v in sorted(g.items(), key=lambda kv: config.rang_groupe(kv[0]))
-            ]
+            # ordre canonique, mais pas de couleur : la provenance se lit
+            # dans le meme gris que le reste de la ligne
+            c["groupes"] = [{"nom": k, "n": v}
+                            for k, v in sorted(g.items(),
+                                               key=lambda kv: config.rang_groupe(kv[0]))]
             c["fomo"] = any(x["nom"] != "on-chain" for x in c["groupes"])
             c["grade"] = notes.get(c.get("mint"))
             c["neuf"] = c.get("mint") in recents
@@ -829,8 +830,6 @@ details[open]>summary .wchev{transform:rotate(180deg)}
 .chains .clogo svg{width:12px;height:12px}
 .tag{font-size:7.5px;letter-spacing:.05em;border:1px solid;border-radius:var(--r);
  padding:0 4px;vertical-align:2px;font-weight:600}
-.grp{font-weight:600}
-.grpsep{color:var(--fg-4);margin:0 4px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
 .chips .chip{background:var(--surface);border:1px solid var(--hair);color:var(--fg-3);
  padding:7px 13px;border-radius:var(--r);cursor:pointer;font-size:10px;font-weight:600;
@@ -1441,7 +1440,7 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
         <div class="id">
           <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}</span>{% endif %}{% if c.dip %} <span class="tag" style="color:#7cc4ff;border-color:rgba(124,196,255,.4)">CONVICTION</span>{% endif %}{% if c.neuf %} <span class="tag neuf" data-neuf="{{ c.mint }}" title="Cliquer pour marquer comme vu" style="color:#4ade80;border-color:rgba(74,222,128,.4);cursor:pointer">NOUVEAU</span>{% endif %}</div>
           <div class="s">{{ c.name }} ·
-            {% for g in c.groupes %}<span class="grp" style="color:{{ g.couleur }}">{{ g.nom }}{% if g.n > 1 %} ×{{ g.n }}{% endif %}</span>{% if not loop.last %}<span class="grpsep">·</span>{% endif %}{% endfor %}
+            {% for g in c.groupes %}{{ g.nom }}{% if g.n > 1 %} ×{{ g.n }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
           </div>
         </div>
         <div class="val">

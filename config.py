@@ -49,19 +49,6 @@ CHAINS = ["solana", "robinhood", "base", "ethereum"]
 # d'une ligne a l'autre. Les clans FOMO d'abord, la decouverte auto en fin.
 ORDRE_GROUPES = ["Top FOMO", "Dabal", "Grand", "Nobi Ventures",
                  "Fantom Troupe", "Suivi", "on-chain"]
-# Une teinte par groupe : les clans dans la famille or, la decouverte
-# automatique en gris pour qu'elle ne se confonde pas avec eux.
-COULEUR_GROUPE = {
-    "Top FOMO":      "#f0d98a",
-    "Dabal":         "#e8c86a",
-    "Grand":         "#d9b45a",
-    "Nobi Ventures": "#cfa94e",
-    "Fantom Troupe": "#c49c42",
-    "Suivi":         "#b8904a",
-    "on-chain":      "#7a7a82",
-}
-
-
 def rang_groupe(g: str) -> int:
     """Position d'un groupe dans l'ordre canonique (inconnus a la fin)."""
     try:
