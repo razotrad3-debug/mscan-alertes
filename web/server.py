@@ -180,6 +180,15 @@ def create_app():
             connus = {p.mint for p in ranked} | {c.get("mint") for c in extra}
             veille = [dict(e, mint=m) for m, e in expansion._lire().items()
                       if e.get("mc") and m not in connus]
+            # un meme nom sorti dix fois par un deployeur ne prend qu'une ligne
+            vus_noms, uniques = set(), []
+            for c in sorted(veille, key=lambda c: -(c.get("liq") or 0)):
+                cle = (c.get("symbol") or "").lower()
+                if cle and cle in vus_noms:
+                    continue
+                vus_noms.add(cle)
+                uniques.append(c)
+            veille = uniques
             veille.sort(key=lambda e: (bool(e.get("impulsion_at")),
                                        e.get("mc") or 0), reverse=True)
             veille = veille[:40]
@@ -1188,8 +1197,11 @@ function applyChain(c){curChain=c; paint(c);
  applyFilter(cur?cur.getAttribute('data-f'):'tous');}
 document.addEventListener('click',function(e){
  var b=e.target.closest('.chains .ch'); if(!b)return;
+ // second clic sur la meme chaine : on revient a tout, le surlignage part
+ var etait=b.classList.contains('on');
  document.querySelectorAll('.chains .ch').forEach(function(x){x.classList.remove('on');});
- b.classList.add('on'); var c=b.getAttribute('data-c');
+ var c='all';
+ if(!etait){b.classList.add('on'); c=b.getAttribute('data-c');}
  try{sessionStorage.setItem('mscan_chain',c);}catch(_){}
  applyChain(c);});
 function applyFilter(f){
@@ -1288,7 +1300,6 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
   </div>
 
   <div class="chains">
-    <button class="ch on" data-c="all" style="--cc:var(--gold)">Toutes <i>{{ chains.all }}</i></button>
     {% for cid, m in chainmeta.items() %}
     <button class="ch" data-c="{{ cid }}" style="--cc:{{ m.color }}">
       <span class="clogo">{{ icon('c_' ~ cid) }}</span>{{ m.label }} <i>{{ chains[cid] }}</i></button>

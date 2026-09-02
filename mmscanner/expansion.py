@@ -56,6 +56,9 @@ LIQ_NAISSANCE = 8_000.0
 # Budgets separes : sans ca une rafale de cinquante clones sur Robinhood
 # mangeait tout le quota et les trois autres chaines ne passaient jamais.
 MAX_NEES_FACTORY = 12
+# Un meme deployeur sortant dix contrats identiques n'apporte pas dix
+# signaux : on n'en prend que deux par passage et par deployeur.
+MAX_PAR_DEPLOYEUR = 2
 MAX_NEES_GECKO = 25
 # Sur Solana la quasi-totalite des lancements naissent sous le seuil et
 # tombent de la liste des nouveautes en quelques minutes. On les met de cote
@@ -225,9 +228,13 @@ def armer_naissances(log=print) -> int:
             continue
 
         quote = (cfg.get("quote") or "").lower()
+        par_deployeur = {}
         for t in items:
             if pris_factory >= MAX_NEES_FACTORY:
                 break
+            qui = ((t.get("from") or {}).get("hash") or "").lower()
+            if qui and par_deployeur.get(qui, 0) >= MAX_PAR_DEPLOYEUR:
+                continue
             di = t.get("decoded_input") or {}
             ps = {p.get("name"): p.get("value") for p in (di.get("parameters") or [])}
             a, b = ps.get("tokenA"), ps.get("tokenB")
@@ -241,6 +248,8 @@ def armer_naissances(log=print) -> int:
             if armer(jeton, chaine, "", None, "naissance", FENETRE_NEE_H):
                 total += 1
                 pris_factory += 1
+                if qui:
+                    par_deployeur[qui] = par_deployeur.get(qui, 0) + 1
 
     # ── chaines indexees par GeckoTerminal
     from mmscanner import sources_gecko as gecko
@@ -396,6 +405,29 @@ def poll(log=print, envoyer: bool = None) -> int:
     mints = sorted(d, key=lambda m: (PRIORITE.get(d[m].get("source"), 3),
                                      -(d[m].get("at") or 0)))[:MAX_SURVEILLES]
     infos = holdings._metriques(mints)
+
+    # Un deployeur sort parfois dix contrats identiques du meme nom. Le
+    # dedoublonnage se faisait par adresse, donc les dix occupaient dix
+    # creneaux et dix lignes a l'ecran. On ne garde que le plus liquide.
+    clones = {}
+    for m in mints:
+        x, e = infos.get(m), d[m]
+        if not x or e.get("source") != "naissance" or e.get("impulsion_at"):
+            continue
+        cle = ((x.get("symbol") or "").lower(), (x.get("name") or "").lower())
+        if not cle[0]:
+            continue
+        garde = clones.get(cle)
+        if garde is None or (x.get("liquidity_usd") or 0) > (infos[garde].get("liquidity_usd") or 0):
+            if garde is not None:
+                d.pop(garde, None)
+            clones[cle] = m
+        else:
+            d.pop(m, None)
+    ecartes = [m for m in mints if m not in d]
+    if ecartes:
+        log(f"[expansion] {len(ecartes)} clone(s) ecarte(s) de la veille")
+        mints = [m for m in mints if m in d]
 
     envoyees = 0
     for m in mints:
