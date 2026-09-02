@@ -24,8 +24,20 @@ VU_FILE = config.path("insider_seen.json")
 
 FENETRE_MIN = 20        # on ignore un achat plus vieux que ca : trop tard pour agir
 COOLDOWN_H = 12         # un meme coin ne repasse pas avant ce delai
-MIN_LIQ = 5_000         # en dessous, c'est injouable : on ne derange pas
 MAX_PAR_TOUR = 6
+
+# Avec 145 adresses suivies, une entree isolee ne veut rien dire : elles
+# touchent des dizaines de coins par heure. Les regles ci-dessous ne gardent
+# que ce qui ressemble a un setup jouable — le reste part quand meme sous
+# veille d'expansion, donc rien n'est perdu : l'alerte arrive plus tard, au
+# repli, quand il y a quelque chose a faire.
+MIN_ACHETEURS = 2       # deux adresses au moins, pas une
+MAX_CHG_H1 = 60.0       # au-dela l'entree est passee : on ne chase pas
+MAX_CHG_H24 = 300.0
+MIN_CHG_H24 = -25.0     # deja en train de couler : on laisse tomber
+MIN_MC = 50_000         # sous ca il n'y a rien a trader
+MIN_LIQ = 15_000
+MAX_PAR_HEURE = 4       # plafond global, quoi qu'il arrive
 EVM_TOUS_LES_S = 300.0     # cadence des adresses EVM (3 requetes chacune)
 _EVM_PROCHAIN = 0.0        # garde-fou : jamais plus de 6 alertes d'un coup
 
@@ -120,9 +132,11 @@ def poll(log=print, amorcage: bool = False) -> int:
             if not mint or ts < limite:
                 continue
             groupe = split_group(label)[0] if label else "Suivi"
-            e = frais.setdefault(mint, {"mint": mint, "ts": ts, "par": []})
+            e = frais.setdefault(mint, {"mint": mint, "ts": ts, "par": [],
+                                        "acheteurs": set()})
             if groupe not in e["par"]:
                 e["par"].append(groupe)
+            e["acheteurs"].add(addr)
             e["ts"] = max(e["ts"], ts)
 
     # tout ce sur quoi une adresse suivie vient d'entrer passe sous veille
@@ -142,7 +156,9 @@ def poll(log=print, amorcage: bool = False) -> int:
     cooldown = maintenant - COOLDOWN_H * 3600
     nouveaux = [c for m, c in frais.items()
                 if (vu.get(m, {}).get("at", 0) if isinstance(vu.get(m), dict) else 0) < cooldown]
-    nouveaux.sort(key=lambda c: (len(c["par"]), c["ts"]), reverse=True)
+    # le plus de monde dessus d'abord
+    nouveaux.sort(key=lambda c: (len(c.get("acheteurs") or ()), len(c["par"]),
+                                 c["ts"]), reverse=True)
 
     if amorcage:
         for c in frais.values():
@@ -152,7 +168,17 @@ def poll(log=print, amorcage: bool = False) -> int:
         return 0
 
     envoyes = 0
+    # ce qui est deja parti dans l'heure compte dans le plafond
+    deja = sum(1 for v in vu.values()
+               if isinstance(v, dict) and not v.get("amorcage")
+               and (v.get("at") or 0) > maintenant - 3600)
+
     for c in nouveaux[:MAX_PAR_TOUR]:
+        if deja + envoyes >= MAX_PAR_HEURE:
+            break
+        # une seule adresse dessus : ca n'a pas valeur de signal
+        if len(c.get("acheteurs") or ()) < MIN_ACHETEURS:
+            continue
         info = sources_dex.enrich(c["mint"]) or {}
         if not info:
             continue
@@ -163,6 +189,16 @@ def poll(log=print, amorcage: bool = False) -> int:
         if not is_crypto_native(c.get("symbol"), c.get("name"), c["mint"], None):
             continue
         if (info.get("liquidity_usd") or 0) < MIN_LIQ:
+            continue
+        if (info.get("market_cap") or 0) < MIN_MC:
+            continue
+        # deja parti, ou deja en train de couler : dans les deux cas il n'y a
+        # plus d'entree a prendre
+        h1, h24 = info.get("chg_h1") or 0, info.get("chg_h24") or 0
+        if h1 > MAX_CHG_H1 or h24 > MAX_CHG_H24:
+            log(f"[insider] {info.get('symbol')} ignore : deja +{max(h1, h24):.0f}%")
+            continue
+        if h24 < MIN_CHG_H24:
             continue
         if tg.send(_format(c)):
             vu[c["mint"]] = {"at": maintenant, "par": c["par"]}
