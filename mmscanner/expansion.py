@@ -364,6 +364,14 @@ def _message(e: dict, d: dict) -> str:
         "La premiere expansion est passee, le pullback se calme.",
         "C'est la seconde expansion qui se joue ici.",
     ]
+    try:
+        from mmscanner import defense
+        dd = defense.analyser(e.get("mint"), chain, d.get("pair") or "")
+        if dd.get("alertes"):
+            lignes.append("⚠️ " + tg._esc(" · ".join(dd["alertes"])))
+    except Exception:
+        pass
+
     groupes = e.get("groupes") or []
     if groupes:
         lignes.append(f"👛 {len(groupes)} insider(s) : {tg._esc(', '.join(groupes[:4]))}")

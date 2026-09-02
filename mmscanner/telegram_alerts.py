@@ -244,6 +244,16 @@ def format_alert(p) -> str:
     if fin_txt:
         lines += [""] + [_esc(t) for t in fin_txt]
 
+    # drapeaux rouges du cours : porteur trop gros, liquidite libre, launch
+    # groupe. On les affiche, on ne decide pas a ta place.
+    try:
+        from mmscanner import defense
+        d = defense.analyser(p.mint, p.chain, getattr(p, "pair_address", ""))
+        if d.get("alertes"):
+            lines.append("⚠️ " + _esc(" · ".join(d["alertes"])))
+    except Exception:
+        pass
+
     if getattr(p, "smart_holders", 0):
         srcs = ", ".join(_esc(s.get("name")) for s in (getattr(p, "sources", []) or [])[:3])
         lines.append(f"👛 {p.smart_holders} insiders{(' : ' + srcs) if srcs else ''}")
