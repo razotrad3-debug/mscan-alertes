@@ -31,7 +31,7 @@ CACHE_FILE = config.path("holdings_cache.json")     # {adresse: {at, mints}}
 RESULT_FILE = config.path("holdings.json")          # dernier classement calcule
 
 TTL_H = 3.0            # un portefeuille est relu au plus toutes les 3 h
-MAX_REFRESH = 30       # portefeuilles relus par passage sur le RPC public
+MAX_REFRESH = 45       # portefeuilles relus par passage (le temps borne aussi)
 MAX_REFRESH_RAPIDE = 99  # quand Helius repond, plus besoin d'etaler
 TTL_SPAM_H = 24.0      # un aimant a spam le reste : inutile de le relire souvent
 MIN_HOLDERS = 2        # un coin tenu par une seule adresse n'est pas un signal
@@ -55,12 +55,15 @@ QUOTES_FIABLES = {"SOL", "WSOL", "USDC", "USDT", "WETH", "ETH", "USD1", "PYUSD"}
 MAX_COINS = 60
 MAX_SOLO = 40
 DIP_PCT = -10.0        # badge CONVICTION : ils tiennent malgre cette baisse
-MAX_PRESELECT = 600    # mints tenus par 2+ envoyes a DexScreener
+# Avec les chaines EVM le nombre de mints tenus par 2+ a explose (les memes
+# wallets achetent les memes lancements) : le plafond precedent coupait la
+# liste avant les vrais coins. Le cache de prix absorbe le surcout.
+MAX_PRESELECT = 1200   # mints tenus par 2+ envoyes a DexScreener
 # Coins tenus par une seule adresse suivie : un KOL qui entre seul sur un coin
 # hype est un signal, meme sans convergence. Le lot est gros (1 700 mints
 # environ) mais le cache de prix rend les passages suivants quasi gratuits.
-MAX_PRESELECT_SOLO = 1200
-TTL_PRIX_S = 1800.0
+MAX_PRESELECT_SOLO = 600     # jetons NEUFS interroges par passage
+TTL_PRIX_S = 2700.0
 # Duree maximale d'un passage. Sur le RPC public un portefeuille recalcitrant
 # peut couter une minute a lui seul ; sans plafond, un tour de garde s'etirait
 # sur une demi-heure. Ce qui n'a pas ete lu l'est au tour suivant.
@@ -421,8 +424,15 @@ def _dex_lot(mints: List[str], profondeur: int = 0) -> dict:
 _PRIX = {}          # mint -> (instant, metriques) ; evite de tout refetcher
 
 
-def _metriques(mints: List[str]) -> dict:
-    """Metriques DexScreener, avec un cache court partage entre passages."""
+def _metriques(mints: List[str], fetch_max: int = None) -> dict:
+    """
+    Metriques DexScreener, avec un cache court partage entre passages.
+
+    fetch_max borne le nombre de jetons NEUFS interroges par passage : le
+    reste attend le tour suivant. Les jetons deja en cache sont rendus quoi
+    qu'il arrive, donc la liste s'etoffe au fil des passages au lieu de
+    clignoter.
+    """
     maintenant = time.time()
     out, a_lire = {}, []
     for m in mints:
@@ -432,6 +442,8 @@ def _metriques(mints: List[str]) -> dict:
                 out[m] = hit[1]
         else:
             a_lire.append(m)
+    if fetch_max is not None:
+        a_lire = a_lire[:fetch_max]
 
     if a_lire:
         lots = [a_lire[i:i + LOT_INITIAL]
@@ -475,7 +487,12 @@ def scan(log=print, force: bool = False) -> dict:
     # TES adresses d'abord : le budget de lecture par passage est limite, et
     # ce sont les wallets FOMO/clans qui t'interessent, pas les wallets
     # trouves tout seuls par recurrence.
-    adresses = sorted(registre, key=lambda a: registre[a].get("origin") != "suivi")
+    # tes adresses d'abord ; et parmi elles les EVM avant les Solana, car
+    # elles se lisent en 2 s contre 8 a 20 s sur le RPC public : a budget de
+    # temps egal, on couvre bien plus de portefeuilles.
+    adresses = sorted(registre,
+                      key=lambda a: (registre[a].get("origin") != "suivi",
+                                     not a.startswith("0x")))
     if not adresses:
         return {"coins": [], "solo": [], "wallets": 0, "at": time.time(),
                 "empty": True}
@@ -503,13 +520,16 @@ def scan(log=print, force: bool = False) -> dict:
     solitaires = [m for m, v in par_mint.items()
                   if len(v) == 1
                   and (registre.get(v[0][0]) or {}).get("origin") == "suivi"]
-    solitaires = solitaires[:MAX_PRESELECT_SOLO]
+
 
     log(f"[holdings] {lus}/{len(adresses)} portefeuilles connus, "
         f"{len(par_mint)} mints, {len(retenus)} tenus par {MIN_HOLDERS}+, "
         f"{len(solitaires)} tenus seul")
 
-    infos = _metriques(retenus + solitaires)
+    # les coins en convergence passent en priorite ; les solitaires sont
+    # decouverts par vagues, le cache retenant ce qui a deja ete resolu
+    infos = _metriques(retenus)
+    infos.update(_metriques(solitaires, fetch_max=MAX_PRESELECT_SOLO))
     coins = _batir(retenus, par_mint, infos, registre, MIN_HOLDERS)
     solos = _batir(solitaires, par_mint, infos, registre, 1)
 
