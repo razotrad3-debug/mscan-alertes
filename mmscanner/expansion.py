@@ -337,22 +337,22 @@ def _message(e: dict, d: dict) -> str:
             note += f" ({e['score']}/12)"
 
     lignes = [
-        f"{pastille} *{titre}*{note} — REPLI APRES 1re EXPANSION",
-        (f"{label} · expansion deja faite, repli en cours"
+        f"{pastille} *{titre}*{note} — PULLBACK APRES 1re EXPANSION",
+        (f"{label} · expansion deja faite, pullback en cours"
          if e.get("deduite") else f"{label} · impulsion il y a {depuis:.0f} min"),
         "",
         f"- Market Cap : `{tg._usd(mc)}`  (haut : `{tg._usd(haut)}`)",
-        f"- Repli : `-{repli:.0f}%` sous le haut",
+        f"- Pullback : `-{repli:.0f}%` sous le haut",
         f"- 5 min : `{d.get('chg_m5', 0):+.0f}%`  ·  1h : `{d.get('chg_h1', 0):+.0f}%`",
         "",
-        "- Entry : `ici, sur le repli`",
+        "- Entry : `ici, sur le pullback`",
         f"- SL : `{tg._usd(sl)}`",
         "",
         f"- TP1 : {_gain(t1)}",
         f"  TP2 : {_gain(t2)}",
         f"  TP3 : {_gain(t3)}",
         "",
-        "La premiere expansion est passee, le repli se calme.",
+        "La premiere expansion est passee, le pullback se calme.",
         "C'est la seconde expansion qui se joue ici.",
     ]
     groupes = e.get("groupes") or []
