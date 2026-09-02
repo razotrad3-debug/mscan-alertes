@@ -1338,7 +1338,7 @@ function applyFilter(f){
    if(it.getAttribute('data-tlonly')==='1')return;
    var n=it.querySelector('.id .n'); if(!n||n.querySelector('.tltag'))return;
    var t=document.createElement('span');
-   t.className='tag tltag'; t.textContent='LIGNE';
+   t.className='tag tltag'; t.textContent='TRENDLINE';
    t.style.color='#ff9f45'; t.style.borderColor='rgba(255,159,69,.45)';
    n.appendChild(document.createTextNode(' ')); n.appendChild(t);});});
 }catch(_){}})();
@@ -1480,8 +1480,8 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <div class="item" data-mint="{{ c.mint }}" data-grade="{{ c.grade or '—' }}"
          data-phase="{{ c.phase or '—' }}" data-chain="{{ c.chain or 'solana' }}"
          data-wallets="{{ c.wallets or 0 }}" data-tlrow="1" data-tlonly="1">
-      <div class="r" style="grid-template-columns:38px minmax(0,1fr) 96px auto">
-        <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:9px;letter-spacing:.1em">LIGNE</div>
+      <div class="r" style="grid-template-columns:74px minmax(0,1fr) 96px auto">
+        <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:8px;letter-spacing:.06em">TRENDLINE</div>
         <div class="id">
           <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }} {{ c.score }}/{{ c.max_score }}</span>{% endif %}</div>
           <div class="s">{{ c.n }} trendline{{ 's' if c.n > 1 }} tracée{{ 's' if c.n > 1 }}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
