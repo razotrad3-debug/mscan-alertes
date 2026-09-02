@@ -64,6 +64,11 @@ MAX_PRESELECT = 1200   # mints tenus par 2+ envoyes a DexScreener
 # environ) mais le cache de prix rend les passages suivants quasi gratuits.
 MAX_PRESELECT_SOLO = 600     # jetons NEUFS interroges par passage
 TTL_PRIX_S = 2700.0
+# Une absence de reponse n'est pas un verdict : DexScreener rate parfois un
+# jeton (429, lot tronque). La garder 45 min faisait disparaitre des coins
+# entiers de la liste d'un passage a l'autre — la convergence est tombee de
+# 28 a 13 coins pour cette seule raison.
+TTL_ABSENCE_S = 240.0
 # Duree maximale d'un passage. Sur le RPC public un portefeuille recalcitrant
 # peut couter une minute a lui seul ; sans plafond, un tour de garde s'etirait
 # sur une demi-heure. Ce qui n'a pas ete lu l'est au tour suivant.
@@ -437,7 +442,8 @@ def _metriques(mints: List[str], fetch_max: int = None) -> dict:
     out, a_lire = {}, []
     for m in mints:
         hit = _PRIX.get(m)
-        if hit and maintenant - hit[0] < TTL_PRIX_S:
+        ttl = TTL_PRIX_S if (hit and hit[1] is not None) else TTL_ABSENCE_S
+        if hit and maintenant - hit[0] < ttl:
             if hit[1] is not None:
                 out[m] = hit[1]
         else:
@@ -456,6 +462,39 @@ def _metriques(mints: List[str], fetch_max: int = None) -> dict:
             # on memorise aussi les absences : un jeton sans paire le reste
             _PRIX[m] = (maintenant, frais.get(m))
         out.update(frais)
+    return out
+
+
+def _repartir(mints, par_mint, plafond: int) -> list:
+    """
+    Selection equilibree entre Solana et EVM.
+
+    Les wallets EVM detiennent les memes centaines de jetons Robinhood : tries
+    par nombre de porteurs, ils rafflaient toute la selection et les coins
+    Solana tenus par deux ou trois adresses passaient a la trappe (25 coins
+    Solana avant, 9 apres l'ouverture des chaines EVM).
+    """
+    evm = sorted((m for m in mints if m.startswith("0x")),
+                 key=lambda m: len(par_mint[m]), reverse=True)
+    sol = sorted((m for m in mints if not m.startswith("0x")),
+                 key=lambda m: len(par_mint[m]), reverse=True)
+    moitie = plafond // 2
+    # ce qu'un camp n'utilise pas profite a l'autre
+    pris_sol = sol[:max(moitie, plafond - len(evm))]
+    pris_evm = evm[:plafond - len(pris_sol)]
+    return pris_sol + pris_evm
+
+
+def _entrelacer(mints) -> list:
+    """Alterne Solana et EVM pour que les deux avancent au meme rythme."""
+    evm = [m for m in mints if m.startswith("0x")]
+    sol = [m for m in mints if not m.startswith("0x")]
+    out = []
+    for i in range(max(len(evm), len(sol))):
+        if i < len(sol):
+            out.append(sol[i])
+        if i < len(evm):
+            out.append(evm[i])
     return out
 
 
@@ -510,8 +549,7 @@ def scan(log=print, force: bool = False) -> dict:
     lus = sum(1 for v in avoirs.values() if v)
     retenus = [m for m, v in par_mint.items()
                if len(v) >= MIN_HOLDERS and not _airdrop(v)]
-    retenus.sort(key=lambda m: len(par_mint[m]), reverse=True)
-    retenus = retenus[:MAX_PRESELECT]
+    retenus = _repartir(retenus, par_mint, MAX_PRESELECT)
 
 
     # coins tenus par une seule adresse SUIVIE : pas de convergence, mais un
@@ -520,6 +558,7 @@ def scan(log=print, force: bool = False) -> dict:
     solitaires = [m for m, v in par_mint.items()
                   if len(v) == 1
                   and (registre.get(v[0][0]) or {}).get("origin") == "suivi"]
+    solitaires = _entrelacer(solitaires)
 
 
     log(f"[holdings] {lus}/{len(adresses)} portefeuilles connus, "
