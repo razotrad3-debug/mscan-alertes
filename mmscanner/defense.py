@@ -162,9 +162,9 @@ def analyser(mint: str, chain: str = "solana", pair: str = "") -> dict:
     alertes = []
     p = d.get("dev_pct")
     if p is not None and p >= DEV_DANGER:
-        alertes.append(f"plus gros porteur a {p:.0f}% de la supply")
+        alertes.append(f"Le plus gros holder a {p:.0f}% de la supply")
     elif p is not None and p >= DEV_ALERTE:
-        alertes.append(f"plus gros porteur a {p:.0f}%")
+        alertes.append(f"Le plus gros holder a {p:.0f}%")
     if d.get("lp") == "libre":
         alertes.append("liquidite ni bloquee ni brulee")
     if d.get("bundle"):

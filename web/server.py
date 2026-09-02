@@ -195,9 +195,10 @@ def create_app():
             veille = []
         counts["veille"] = len(veille)
 
-        # tes trendlines : on marque les coins deja listes, et on ajoute ceux
-        # que le scan ne connait pas — une ligne tracee a la main vaut d'etre
-        # vue meme si le coin n'est jamais remonte dans le classement
+        # tes trendlines : UNE ligne par coin trace, toutes de la meme forme.
+        # Sous cette puce on ne veut pas voir cohabiter deux presentations —
+        # on reprend donc ce que le scan sait du coin (note, phase, wallets)
+        # et on le pose dans la meme ligne que les autres.
         try:
             from mmscanner import trendlines as tlmod, holdings as hmod
             par_mint = {}
@@ -205,29 +206,54 @@ def create_app():
                 par_mint.setdefault(l.get("mint"), []).append(l)
             par_mint.pop(None, None)
             tl_mints = sorted(par_mint)
-            deja = ({p.mint for p in ranked} | {c.get("mint") for c in extra}
-                    | {c.get("mint") for c in veille})
-            absents = [m for m in tl_mints if m not in deja]
-            infos = hmod._metriques(absents) if absents else {}
-            tl_extra = []
-            for m in absents:
-                x = infos.get(m) or {}
+
+            notes = {p.mint: p for p in ranked}
+            suivis = {c.get("mint"): c for c in extra}
+            guettes = {c.get("mint"): c for c in veille}
+            inconnus = [m for m in tl_mints
+                        if m not in notes and m not in suivis and m not in guettes]
+            frais = hmod._metriques(inconnus) if inconnus else {}
+
+            tl_rows = []
+            for m in tl_mints:
                 ls = par_mint[m]
-                tl_extra.append({
-                    "mint": m, "n": len(ls),
-                    "symbol": x.get("symbol") or ls[0].get("symbol") or "?",
-                    "chain": x.get("chain") or ls[0].get("chain") or "solana",
-                    "pair": x.get("pair") or ls[0].get("pair") or "",
-                    "mc": x.get("mc") or 0, "chg_h1": x.get("chg_h1") or 0,
-                })
-            tl_extra.sort(key=lambda c: -(c.get("mc") or 0))
+                base = {"mint": m, "n": len(ls), "grade": "", "score": 0,
+                        "max_score": 12, "phase": "", "wallets": 0, "groups": ""}
+                if m in notes:
+                    q = notes[m]
+                    base.update(symbol=q.symbol, chain=q.chain or "solana",
+                                pair=q.pair_address or "", mc=q.market_cap,
+                                chg_h1=q.chg_h1, grade=q.grade, score=q.score,
+                                max_score=q.max_score, phase=q.phase,
+                                wallets=q.smart_holders or 0)
+                elif m in suivis:
+                    c = suivis[m]
+                    base.update(symbol=c.get("symbol") or "?", chain=c.get("chain") or "solana",
+                                pair=c.get("pair") or "", mc=c.get("mc") or 0,
+                                chg_h1=c.get("chg_h1") or 0,
+                                wallets=len(c.get("by") or []),
+                                groups=c.get("groups") or "")
+                elif m in guettes:
+                    c = guettes[m]
+                    base.update(symbol=c.get("symbol") or "?", chain=c.get("chain") or "solana",
+                                pair=c.get("pair") or "", mc=c.get("mc") or 0,
+                                chg_h1=c.get("chg_h1") or 0, phase="Veille")
+                else:
+                    x = frais.get(m) or {}
+                    base.update(symbol=x.get("symbol") or ls[0].get("symbol") or "?",
+                                chain=x.get("chain") or ls[0].get("chain") or "solana",
+                                pair=x.get("pair") or ls[0].get("pair") or "",
+                                mc=x.get("mc") or 0, chg_h1=x.get("chg_h1") or 0)
+                tl_rows.append(base)
+            tl_rows.sort(key=lambda c: (config.grade_rank(c["grade"]) if c["grade"] else -1,
+                                        c.get("mc") or 0), reverse=True)
         except Exception:
-            tl_mints, tl_extra = [], []
+            tl_mints, tl_rows = [], []
         counts["ligne"] = len(tl_mints)
 
         return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra,
                                       veille=veille, counts=counts,
-                                      tl_mints=tl_mints, tl_extra=tl_extra,
+                                      tl_mints=tl_mints, tl_rows=tl_rows,
                                       chains=chains, chainmeta=config.CHAIN_META,
                                       meta=meta, active="radar",
                                       prog=meta.get("progress", {}),
@@ -1281,14 +1307,15 @@ function applyFilter(f){
       w=parseInt(it.getAttribute('data-wallets')||'0',10),ok=true;
   if(curChain!=='all'&&ch!==curChain){it.hidden=true;return;}
   var vl=it.getAttribute('data-veille')==='1',
-      lg=it.getAttribute('data-ligne')==='1',
       tlo=it.getAttribute('data-tlonly')==='1';
-  if(f!=='veille'&&vl&&!(f==='ligne'&&lg)){it.hidden=true;return;}
-  // un coin present UNIQUEMENT parce qu'il porte une ligne ne s'affiche
-  // que sous son propre onglet : il n'a pas de note a comparer aux autres
+  if(f!=='veille'&&vl){it.hidden=true;return;}   // la veille a son propre onglet
+  // les lignes de trendline ont leur propre presentation : elles ne
+  // s'affichent que sous leur puce, et la ligne normale du meme coin
+  // s'efface alors, pour ne pas le montrer deux fois
   if(f!=='ligne'&&tlo){it.hidden=true;return;}
+  if(f==='ligne'&&!tlo){it.hidden=true;return;}
   if(f==='veille')    ok = vl;
-  else if(f==='ligne')ok = lg;
+  else if(f==='ligne')ok = true;
   else if(f==='conv') ok = w>=2;
   else if(f==='top')  ok = (g==='A+'||g==='A'||g==='A-');
   else if(f==='wallet')ok = w>=1;
@@ -1304,7 +1331,6 @@ function applyFilter(f){
  (window.TL_MINTS||[]).forEach(function(m){
   document.querySelectorAll('#rows .item[data-mint="'+m+'"]').forEach(function(it){
    if(it.getAttribute('data-tlonly')==='1')return;
-   it.setAttribute('data-ligne','1');
    var n=it.querySelector('.id .n'); if(!n||n.querySelector('.tltag'))return;
    var t=document.createElement('span');
    t.className='tag tltag'; t.textContent='LIGNE';
@@ -1406,7 +1432,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
   </div>
   <script>window.TL_MINTS={{ tl_mints|tojson }};</script>
 
-  {% if pairs or extra or veille %}
+  {% if pairs or extra or veille or tl_rows %}
   <div class="rows" id="rows">
     {% for p in pairs %}{{ row(p) }}{% endfor %}
     {% for c in extra %}
@@ -1445,14 +1471,16 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
       </div>
     </div>
     {% endfor %}
-    {% for c in tl_extra %}
-    <div class="item" data-mint="{{ c.mint }}" data-grade="—" data-phase="—"
-         data-chain="{{ c.chain or 'solana' }}" data-wallets="0"
-         data-ligne="1" data-tlonly="1">
+    {% for c in tl_rows %}
+    <div class="item" data-mint="{{ c.mint }}" data-grade="{{ c.grade or '—' }}"
+         data-phase="{{ c.phase or '—' }}" data-chain="{{ c.chain or 'solana' }}"
+         data-wallets="{{ c.wallets or 0 }}" data-tlrow="1" data-tlonly="1">
       <div class="r" style="grid-template-columns:38px minmax(0,1fr) 96px auto">
         <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:9px;letter-spacing:.1em">LIGNE</div>
-        <div class="id"><div class="n">{{ c.symbol }}</div>
-          <div class="s">{{ c.n }} trendline{{ 's' if c.n > 1 }} tracée{{ 's' if c.n > 1 }}</div></div>
+        <div class="id">
+          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }} {{ c.score }}/{{ c.max_score }}</span>{% endif %}</div>
+          <div class="s">{{ c.n }} trendline{{ 's' if c.n > 1 }} tracée{{ 's' if c.n > 1 }}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
+        </div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           <div class="c num {{ 'up' if (c.chg_h1 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1 or 0) }}%</div></div>
         <div class="acts">
