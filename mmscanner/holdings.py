@@ -409,8 +409,13 @@ def _dex_lot(mints: List[str], profondeur: int = 0) -> dict:
             "mc": float(p.get("marketCap") or p.get("fdv") or 0),
             "liquidity_usd": liq,
             "vol_h24": float((p.get("volume") or {}).get("h24") or 0),
+            "vol_m5": float((p.get("volume") or {}).get("m5") or 0),
             "chg_h24": float((p.get("priceChange") or {}).get("h24") or 0),
             "chg_h6": float((p.get("priceChange") or {}).get("h6") or 0),
+            "chg_h1": float((p.get("priceChange") or {}).get("h1") or 0),
+            "chg_m5": float((p.get("priceChange") or {}).get("m5") or 0),
+            "achats_m5": int(((p.get("txns") or {}).get("m5") or {}).get("buys") or 0),
+            "ventes_m5": int(((p.get("txns") or {}).get("m5") or {}).get("sells") or 0),
             "age_hours": (max(0.0, (time.time() - cree / 1000.0) / 3600.0)
                           if cree else None),
         }

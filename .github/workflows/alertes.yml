@@ -40,6 +40,7 @@ jobs:
             telegram_sent.json
             telegram_msgids.json
             insider_seen.json
+            expansion_watch.json
             pool_cache.json
             holdings_cache.json
             holdings.json
@@ -71,6 +72,7 @@ jobs:
             telegram_sent.json
             telegram_msgids.json
             insider_seen.json
+            expansion_watch.json
             pool_cache.json
             holdings_cache.json
             holdings.json

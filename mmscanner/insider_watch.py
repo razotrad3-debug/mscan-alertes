@@ -125,6 +125,19 @@ def poll(log=print, amorcage: bool = False) -> int:
                 e["par"].append(groupe)
             e["ts"] = max(e["ts"], ts)
 
+    # tout ce sur quoi une adresse suivie vient d'entrer passe sous veille
+    # d'expansion : c'est ce vivier, deja filtre par la qualite des wallets,
+    # qui permet d'alerter au depart du mouvement et non une heure apres.
+    try:
+        from . import expansion
+        n = expansion.armer_lot(
+            [{"mint": c["mint"], "groupes": c["par"]} for c in frais.values()],
+            source="insider")
+        if n:
+            log(f"[expansion] {n} coin(s) mis sous veille")
+    except Exception as e:
+        log(f"[expansion] {e}")
+
     # on ecarte ce qui a deja ete signale dans la fenetre
     cooldown = maintenant - COOLDOWN_H * 3600
     nouveaux = [c for m, c in frais.items()

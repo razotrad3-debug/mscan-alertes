@@ -66,6 +66,18 @@ def one_scan() -> int:
     except Exception as e:
         print(f"[flow] {e}")
 
+    # les coins notes par le radar rejoignent la veille d'expansion : meme
+    # s'ils ne declenchent pas d'alerte maintenant, on veut etre la a leur
+    # prochaine impulsion plutot que de les decouvrir une heure trop tard.
+    try:
+        from mmscanner import expansion
+        expansion.armer_lot(
+            [{"mint": p.mint, "chain": p.chain, "symbol": p.symbol}
+             for p in pairs if p.grade in ("A+", "A", "A-", "B+", "B")],
+            source="radar")
+    except Exception as e:
+        print(f"[expansion] {e}")
+
     # avoirs des adresses suivies : c'est ce cache que le scanner relit pour
     # savoir qui detient quoi. Sans ce passage, le critere smart-money
     # tomberait a zero dans le cloud et les notes s'ecrouleraient.
@@ -148,6 +160,11 @@ def main():
                 insider_watch.poll()
             except Exception as e:
                 print(f"[insider] {e}")
+            try:
+                from mmscanner import expansion
+                expansion.poll()
+            except Exception as e:
+                print(f"[expansion] {e}")
             # cadence de 60 s quoi qu'il arrive, meme si le tour a ete long
             time.sleep(max(5, 60 - (time.time() - debut)))
 
