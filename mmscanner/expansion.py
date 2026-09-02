@@ -46,6 +46,24 @@ FACTORIES = {
 }
 FENETRE_NEE_H = 36.0     # un coin tout neuf merite plus de temps qu'un autre
 
+# Solana, Ethereum et Base sont indexes par GeckoTerminal, qui publie ses
+# pools les plus recentes : pas besoin d'aller lire les factories a la main.
+# En revanche le debit y est sans commune mesure avec Robinhood — des
+# centaines de lancements par heure sur Solana — donc on n'arme que les pools
+# qui ont deja de quoi s'echanger. Une pool a zero ne donne rien a acheter.
+CHAINES_GECKO = ("solana", "ethereum", "base")
+LIQ_NAISSANCE = 8_000.0
+# Budgets separes : sans ca une rafale de cinquante clones sur Robinhood
+# mangeait tout le quota et les trois autres chaines ne passaient jamais.
+MAX_NEES_FACTORY = 12
+MAX_NEES_GECKO = 25
+# Sur Solana la quasi-totalite des lancements naissent sous le seuil et
+# tombent de la liste des nouveautes en quelques minutes. On les met de cote
+# et on regarde s'ils se remplissent : sans ca, la chaine principale n'etait
+# couverte qu'a la marge (un jeton arme sur vingt).
+ATTENTE_H = 6.0
+MAX_ATTENTE = 300
+
 FENETRE_H = 10.0         # duree pendant laquelle un coin arme reste surveille
 SEUIL_M5 = 20.0          # % sur 5 min qui signale l'impulsion
 IMPULSION_X = 1.45       # ou : le MC a pris 45 % sur sa base depuis l'armement
@@ -146,12 +164,18 @@ def armer_naissances(log=print) -> int:
     """
     from mmscanner import sources_evm as evm
 
-    vus = _lire_nees()
+    brut = _lire_nees()
     maintenant = time.time()
+    attente = brut.pop("_attente", {}) or {}
     # on oublie ce qui est vu depuis plus de trois jours, le fichier reste petit
-    vus = {k: v for k, v in vus.items() if maintenant - v < 3 * 86400}
+    vus = {k: v for k, v in brut.items()
+           if isinstance(v, (int, float)) and maintenant - v < 3 * 86400}
+    attente = {m: e for m, e in attente.items()
+               if maintenant - (e.get("at") or 0) < ATTENTE_H * 3600
+               and m.lower() not in vus}
 
     total = 0
+    pris_factory = 0
     for chaine, cfg in FACTORIES.items():
         try:
             r = _SESSION.get(
@@ -166,6 +190,8 @@ def armer_naissances(log=print) -> int:
 
         quote = (cfg.get("quote") or "").lower()
         for t in items:
+            if pris_factory >= MAX_NEES_FACTORY:
+                break
             di = t.get("decoded_input") or {}
             ps = {p.get("name"): p.get("value") for p in (di.get("parameters") or [])}
             a, b = ps.get("tokenA"), ps.get("tokenB")
@@ -178,11 +204,61 @@ def armer_naissances(log=print) -> int:
             vus[cle] = maintenant
             if armer(jeton, chaine, "", None, "naissance", FENETRE_NEE_H):
                 total += 1
+                pris_factory += 1
+
+    # ── chaines indexees par GeckoTerminal
+    from mmscanner import sources_gecko as gecko
+    pris_gecko = 0
+    for chaine in CHAINES_GECKO:
+        if pris_gecko >= MAX_NEES_GECKO:
+            break
+        net = gecko.net_for(chaine)
+        if not net:
+            continue
+        try:
+            data = gecko._get(f"{gecko.BASE}/networks/{net}/new_pools", {"page": 1})
+        except Exception as e:
+            log(f"[naissance] {chaine} : {e}")
+            continue
+        for item in ((data or {}).get("data") or []):
+            pool = gecko._parse_pool(item)
+            if not pool:
+                continue
+            jeton = pool.get("mint")
+            if not jeton or jeton.lower() in vus:
+                continue
+            if (pool.get("liquidity_usd") or 0) < LIQ_NAISSANCE:
+                # trop vide pour l'instant : on la garde a l'oeil
+                attente.setdefault(jeton, {"chain": chaine, "at": maintenant})
+                continue
+            vus[jeton.lower()] = maintenant
+            if armer(jeton, chaine, pool.get("symbol") or "", None,
+                     "naissance", FENETRE_NEE_H):
+                total += 1
+                pris_gecko += 1
+            if pris_gecko >= MAX_NEES_GECKO:
+                break
+
+    # ── les mises de cote qui se sont remplies depuis
+    if attente:
+        from mmscanner import holdings
+        infos = holdings._metriques(list(attente)[:MAX_ATTENTE])
+        for jeton, e in list(attente.items()):
+            d = infos.get(jeton)
+            if not d:
+                continue
+            if (d.get("liquidity_usd") or 0) < LIQ_NAISSANCE:
+                continue
+            vus[jeton.lower()] = maintenant
+            attente.pop(jeton, None)
+            if armer(jeton, e.get("chain") or d.get("chain") or "",
+                     d.get("symbol") or "", None, "naissance", FENETRE_NEE_H):
+                total += 1
 
     try:
         tmp = NEES_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(vus, f)
+            json.dump({**vus, "_attente": attente}, f)
         os.replace(tmp, NEES_FILE)
     except Exception:
         pass
