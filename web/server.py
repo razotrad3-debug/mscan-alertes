@@ -468,6 +468,45 @@ def create_app():
                             "progress": STATE.get("progress", {}),
                             "pairs": [p.to_dict() for p in STATE["pairs"]]})
 
+    # ── tes trendlines ─────────────────────────────────────────────
+    # Le script installe dans le navigateur parle a cette porte. Elle est la
+    # seule a accepter une requete venue d'ailleurs que de l'app, et
+    # uniquement depuis DexScreener.
+    ORIGINES = ("https://dexscreener.com", "https://www.dexscreener.com")
+
+    def _ouvrir(rep):
+        o = request.headers.get("Origin") or ""
+        if o in ORIGINES:
+            rep.headers["Access-Control-Allow-Origin"] = o
+            rep.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            rep.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            # Chrome traite une page publique qui appelle 127.0.0.1 comme un
+            # acces au reseau prive et exige cet accord explicite. Le script
+            # passe normalement par l'extension et n'en a pas besoin ; c'est
+            # le filet pour qui voudrait appeler depuis la page elle-meme.
+            rep.headers["Access-Control-Allow-Private-Network"] = "true"
+        return rep
+
+    @app.route("/api/trendlines", methods=["GET", "POST", "OPTIONS"])
+    def api_trendlines():
+        from mmscanner import trendlines
+        if request.method == "OPTIONS":
+            return _ouvrir(app.make_response(("", 204)))
+        if request.method == "POST":
+            charge = request.get_json(force=True, silent=True) or {}
+            return _ouvrir(jsonify(trendlines.enregistrer(charge)))
+        # GET sert aussi de signature : c'est ainsi que le script trouve le
+        # bon port, l'app ne tournant pas toujours sur le meme
+        return _ouvrir(jsonify({"app": "mscan", "lignes": trendlines.lignes()}))
+
+    # surveillance des lignes : cadence propre, bien plus rapide que le scan
+    def _veille_lignes():
+        from mmscanner import trendlines
+        trendlines.boucle()
+
+    threading.Thread(target=_veille_lignes, daemon=True,
+                     name="trendlines").start()
+
     return app
 
 

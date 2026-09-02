@@ -346,9 +346,9 @@ def _message(e: dict, d: dict) -> str:
             note += f" ({e['score']}/12)"
 
     lignes = [
-        f"{pastille} *{titre}*{note} — PULLBACK APRES 1re EXPANSION",
-        (f"{label} · expansion deja faite, pullback en cours"
-         if e.get("deduite") else f"{label} · impulsion il y a {depuis:.0f} min"),
+        f"{pastille} *{titre}*{note}",
+        (f"{label} · Phase Pullback" if e.get("deduite")
+         else f"{label} · Phase Pullback · impulsion il y a {depuis:.0f} min"),
         "",
         f"- Market Cap : `{tg._usd(mc)}`  (haut : `{tg._usd(haut)}`)",
         f"- Pullback : `-{repli:.0f}%` sous le haut",
@@ -412,7 +412,11 @@ def poll(log=print, envoyer: bool = None) -> int:
 
     mints = sorted(d, key=lambda m: (PRIORITE.get(d[m].get("source"), 3),
                                      -(d[m].get("at") or 0)))[:MAX_SURVEILLES]
-    infos = holdings._metriques(mints)
+    # frais=True : sans ca la veille lisait le cache de prix partage, dont la
+    # duree de vie est de 45 min. Un tour toutes les 60 s comparait donc
+    # quarante fois de suite les MEMES chiffres — le repli pouvait etre
+    # commence, fini et reparti avant que la veille ne voie le prix bouger.
+    infos = holdings._metriques(mints, frais=True)
 
     # Un deployeur sort parfois dix contrats identiques du meme nom. Le
     # dedoublonnage se faisait par adresse, donc les dix occupaient dix
