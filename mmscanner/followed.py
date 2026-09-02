@@ -437,6 +437,24 @@ def load_buys() -> dict:
         return {"coins": [], "at": 0}
 
 
+def recent_mints_dates(hours: float = 48) -> dict:
+    """{mint: instant du dernier achat} — sert a savoir si un coin est de
+    nouveau frais apres avoir ete marque comme vu."""
+    try:
+        import json
+        with open(BUYS_CACHE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return {}
+    limite = time.time() - hours * 3600
+    out = {}
+    for c in d.get("coins", []):
+        m, ts = c.get("mint"), c.get("ts") or 0
+        if m and ts >= limite and _jouable(c, m):
+            out[m] = max(out.get(m, 0), ts)
+    return out
+
+
 def recent_mints(hours: float = 48) -> list:
     """
     Mints sur lesquels une adresse suivie est entree recemment.

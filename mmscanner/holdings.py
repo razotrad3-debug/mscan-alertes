@@ -434,7 +434,8 @@ def _dex_lot(mints: List[str], profondeur: int = 0) -> dict:
 _PRIX = {}          # mint -> (instant, metriques) ; evite de tout refetcher
 
 
-def _metriques(mints: List[str], fetch_max: int = None) -> dict:
+def _metriques(mints: List[str], fetch_max: int = None,
+               frais: bool = False) -> dict:
     """
     Metriques DexScreener, avec un cache court partage entre passages.
 
@@ -446,7 +447,7 @@ def _metriques(mints: List[str], fetch_max: int = None) -> dict:
     maintenant = time.time()
     out, a_lire = {}, []
     for m in mints:
-        hit = _PRIX.get(m)
+        hit = None if frais else _PRIX.get(m)
         ttl = TTL_PRIX_S if (hit and hit[1] is not None) else TTL_ABSENCE_S
         if hit and maintenant - hit[0] < ttl:
             if hit[1] is not None:
@@ -582,6 +583,21 @@ def scan(log=print, force: bool = False) -> dict:
     # un seul porteur : c'est la taille de sa position qui classe
     solos.sort(key=lambda c: c["value_usd"], reverse=True)
     solos = _sans_pieges(solos[:MAX_SOLO], log)
+
+    # Les chiffres affiches viennent d'un cache de 45 min, ce qui suffit pour
+    # trier 1 200 jetons mais pas pour montrer une capitalisation : un coin
+    # ressortait a 21 M$ alors qu'il en valait 33. On relit donc a la source
+    # la centaine de coins qui restent — cinq appels, et l'affichage colle.
+    garde = [c["mint"] for c in coins + solos]
+    if garde:
+        neufs = _metriques(garde, frais=True)
+        if neufs:
+            coins = _batir([c["mint"] for c in coins], par_mint, neufs,
+                           registre, MIN_HOLDERS) or coins
+            solos = _batir([c["mint"] for c in solos], par_mint, neufs,
+                           registre, 1) or solos
+            coins.sort(key=lambda c: (c["holders"], c["value_usd"]), reverse=True)
+            solos.sort(key=lambda c: c["value_usd"], reverse=True)
 
     res = {"coins": coins, "solo": solos, "wallets": lus,
            "total": len(adresses), "at": time.time(), "empty": False}

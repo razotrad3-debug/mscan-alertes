@@ -71,9 +71,12 @@ def one_scan() -> int:
     # prochaine impulsion plutot que de les decouvrir une heure trop tard.
     try:
         from mmscanner import expansion
+        # toutes les paires notees, avec leur rang : celles qui n'alertent
+        # pas aujourd'hui alerteront peut-etre a leur prochain repli, et le
+        # message portera alors la note.
         expansion.armer_lot(
-            [{"mint": p.mint, "chain": p.chain, "symbol": p.symbol}
-             for p in pairs if p.grade in ("A+", "A", "A-", "B+", "B")],
+            [{"mint": p.mint, "chain": p.chain, "symbol": p.symbol,
+              "grade": p.grade, "score": p.score} for p in pairs],
             source="radar")
     except Exception as e:
         print(f"[expansion] {e}")

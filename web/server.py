@@ -298,10 +298,10 @@ def create_app():
         notes = {p.mint: p.grade for p in (meta.get("pairs") or [])}
         # achete dans les 48 h : le coin est chaud, pas seulement detenu
         try:
-            from mmscanner.followed import recent_mints
-            recents = set(recent_mints(48))
+            from mmscanner.followed import recent_mints_dates
+            recents = recent_mints_dates(48)
         except Exception:
-            recents = set()
+            recents = {}
 
         tous = list(data.get("coins") or []) + list(data.get("solo") or [])
         coins = []
@@ -320,6 +320,7 @@ def create_app():
             c["fomo"] = any(x["nom"] != "on-chain" for x in c["groupes"])
             c["grade"] = notes.get(c.get("mint"))
             c["neuf"] = c.get("mint") in recents
+            c["neuf_ts"] = int(recents.get(c.get("mint")) or 0)
             coins.append(c)
 
         tri = request.args.get("tri", "convergence")
@@ -1438,7 +1439,7 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
       <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
         <div class="gr" style="--gc:var(--gold);color:{{ 'var(--gold)' if c.holders > 1 else 'var(--fg-3)' }}">{{ c.holders }}</div>
         <div class="id">
-          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}</span>{% endif %}{% if c.dip %} <span class="tag" style="color:#7cc4ff;border-color:rgba(124,196,255,.4)">CONVICTION</span>{% endif %}{% if c.neuf %} <span class="tag neuf" data-neuf="{{ c.mint }}" title="Cliquer pour marquer comme vu" style="color:#4ade80;border-color:rgba(74,222,128,.4);cursor:pointer">NOUVEAU</span>{% endif %}</div>
+          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}</span>{% endif %}{% if c.dip %} <span class="tag" style="color:#7cc4ff;border-color:rgba(124,196,255,.4)">CONVICTION</span>{% endif %}{% if c.neuf %} <span class="tag neuf" data-neuf="{{ c.mint }}" data-ts="{{ c.neuf_ts }}" title="Cliquer pour marquer comme vu" style="color:#4ade80;border-color:rgba(74,222,128,.4);cursor:pointer">NOUVEAU</span>{% endif %}</div>
           <div class="s">{{ c.name }} ·
             {% for g in c.groupes %}{{ g.nom }}{% if g.n > 1 %} ×{{ g.n }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
           </div>
@@ -1479,15 +1480,22 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
 (function(){
  var vus={};
  try{vus=JSON.parse(localStorage.getItem('mscan_vus')||'{}');}catch(_){}
+ // on retient QUAND on a marque comme vu : si une adresse suivie rachete le
+ // coin plus tard, l'achat est plus recent que le clic et l'etiquette revient
  function nettoyer(){
   document.querySelectorAll('.tag.neuf').forEach(function(b){
-   if(vus[b.getAttribute('data-neuf')])b.remove();});}
+   var vu=vus[b.getAttribute('data-neuf')]||0,
+       achat=parseInt(b.getAttribute('data-ts')||'0',10)*1000;
+   if(vu&&vu>=achat)b.remove();});}
  nettoyer();
  document.addEventListener('click',function(e){
   var b=e.target.closest('.tag.neuf'), ligne=e.target.closest('.item[data-mint]');
   var mint=b?b.getAttribute('data-neuf'):(ligne?ligne.getAttribute('data-mint'):null);
   if(!mint)return;
-  vus[mint]=1;
+  vus[mint]=Date.now();
+  // on oublie les marquages de plus de trois jours : le fichier reste petit
+  var vieux=Date.now()-3*86400000;
+  Object.keys(vus).forEach(function(k){if(vus[k]<vieux)delete vus[k];});
   try{localStorage.setItem('mscan_vus',JSON.stringify(vus));}catch(_){}
   nettoyer();});
 })();

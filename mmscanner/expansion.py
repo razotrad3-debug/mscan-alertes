@@ -154,10 +154,18 @@ def armer_lot(coins: List[dict], source: str = "") -> int:
                                           + list(c["groupes"])))
             if c.get("symbol") and not e.get("symbol"):
                 e["symbol"] = c["symbol"]
+            # la note du radar arrive souvent apres l'entree insider : on la
+            # recupere au passage pour l'afficher dans l'alerte de repli
+            if c.get("grade"):
+                e["grade"] = c["grade"]
+                e["score"] = c.get("score")
             continue
         d[mint] = {"at": maintenant, "chain": c.get("chain", ""),
                    "symbol": c.get("symbol", ""),
                    "groupes": list(c.get("groupes") or []), "source": source}
+        if c.get("grade"):
+            d[mint]["grade"] = c["grade"]
+            d[mint]["score"] = c.get("score")
         n += 1
     if coins:
         _ecrire(d)
@@ -316,8 +324,14 @@ def _message(e: dict, d: dict) -> str:
     def _gain(v):
         return f"`{tg._usd(v)}` (+{(v / mc - 1) * 100:.0f}%)" if mc else f"`{tg._usd(v)}`"
 
+    note = ""
+    if e.get("grade"):
+        note = f" — {tg._esc(e['grade'])}"
+        if e.get("score"):
+            note += f" ({e['score']}/12)"
+
     lignes = [
-        f"{pastille} *{titre}* — REPLI APRES 1re EXPANSION",
+        f"{pastille} *{titre}*{note} — REPLI APRES 1re EXPANSION",
         f"{label} · impulsion il y a {depuis:.0f} min",
         "",
         f"- Market Cap : `{tg._usd(mc)}`  (haut : `{tg._usd(haut)}`)",
