@@ -335,36 +335,33 @@ def _val(v: float, unite: str) -> str:
 
 
 def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
+    """
+    Court, et il dit d'ou vient le prix.
+
+    Le rond est orange quelle que soit la chaine : une alerte de trendline
+    vient de TOI, pas du scanner, et doit se reconnaitre d'un coup d'oeil au
+    milieu des autres.
+    """
     from mmscanner import telegram_alerts as tg
     from mmscanner.model import dex_link, gmgn_link
 
     chain = (x.get("chain") or l.get("chain") or "solana").lower()
     label = config.CHAIN_META.get(chain, {}).get("label", chain.title())
-    pastille = tg.PASTILLE.get(chain, "⚪")
     titre = tg._esc(x.get("symbol") or l.get("symbol") or "?")
     unite = l.get("unite") or "mc"
-    quoi = "Market Cap" if unite != "prix" else "Cours"
-    role = "support" if ecart >= 0 else "resistance"
-    cote = "au-dessus" if ecart >= 0 else "sous"
-    pente = ""
-    if l.get("t2") and l.get("t2") != l.get("t1"):
-        par_h = (niveau(l, time.time() + 3600) or n) - n
-        mot = "montante" if par_h > 0 else ("descendante" if par_h < 0 else "plate")
-        pente = f", {mot}"
-    trace = time.strftime("%d/%m a %H:%M", time.localtime(l.get("cree") or 0))
+    quoi = "Prix" if unite == "prix" else "Market Cap"
+    # Au-dessus de la ligne, le prix descend dessus ; en dessous, il remonte.
+    # C'est le sens de l'approche, pas celui de la bougie.
+    sens = "Crossing Down" if ecart >= 0 else "Crossing Up"
 
     corps = [
-        f"{pastille} *{titre}*",
+        f"🟠 *{titre}*",
         f"{label} · Trendline touch",
         "",
+        f"- {sens}",
         f"- {quoi} : `{_val(val, unite)}`",
-        f"- Ta ligne : `{_val(n, unite)}`  (`{ecart*100:+.1f}%` {cote})",
-        f"- 5 min : `{x.get('chg_m5', 0):+.0f}%`  ·  1h : `{x.get('chg_h1', 0):+.0f}%`",
-        "",
-        f"- Ligne tracee le {trace} — {role}{pente}",
         "",
         "Le prix revient sur la ligne que tu as tracee.",
-        "C'est ta zone, pas celle du scanner.",
     ]
     cible = x.get("pair") or l.get("pair") or l.get("mint")
     corps += ["", f"[DexScreener]({dex_link(chain, cible)})"
