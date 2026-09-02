@@ -162,6 +162,13 @@ def rpc(method: str, params: list, essais: int = 3):
 
 
 CHAINES_EVM = ("robinhood", "ethereum", "base")
+# Une chaine dont l'explorateur est franchement en panne ne doit pas faire
+# marquer toutes les lectures comme partielles : le Blockscout de Base rend
+# 500 en continu, et 46 portefeuilles sur 55 repassaient donc toutes les 15
+# minutes pour une chaine qui ne repondra pas. On la met de cote, et on la
+# reessaie de temps en temps.
+_CHAINE_KO = {}                 # chaine -> echecs consecutifs
+KO_AVANT_MISE_DE_COTE = 3
 
 
 def _comptes_evm(addr: str):
@@ -193,6 +200,7 @@ def _comptes_evm(addr: str):
             except Exception:
                 continue
             repondu.add(chaine)
+            _CHAINE_KO[chaine] = 0
             for it in lignes:
                 t = it.get("token") or {}
                 mint = t.get("address_hash") or t.get("address")
@@ -212,7 +220,16 @@ def _comptes_evm(addr: str):
                 qtes[mint] = qtes.get(mint, 0.0) + q
                 chaines[mint] = chaine
             break
+    for chaine in CHAINES_EVM:
+        if chaine not in repondu:
+            _CHAINE_KO[chaine] = _CHAINE_KO.get(chaine, 0) + 1
     return (qtes, chaines, repondu) if repondu else None
+
+
+def chaines_attendues() -> set:
+    """Chaines dont on peut raisonnablement esperer une reponse."""
+    return {c for c in CHAINES_EVM
+            if _CHAINE_KO.get(c, 0) < KO_AVANT_MISE_DE_COTE}
 
 
 def _comptes(addr: str):
@@ -327,6 +344,9 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                     mints, chaines, repondu = mints
                     # une chaine muette ne doit pas effacer ce qu'on savait
                     # d'elle : on recolle ses anciennes lignes
+                    # on recolle les lignes de TOUTE chaine muette, meme mise
+                    # de cote : sa mise de cote ne concerne que la cadence de
+                    # relecture, pas la valeur de ce qu'on sait deja d'elle
                     manquantes = set(CHAINES_EVM) - repondu
                     ancien = cache.get(a) or {}
                     if manquantes and ancien.get("mints"):
@@ -360,9 +380,10 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                     if chaines:
                         cache[a]["chains"] = chaines
                     # lecture incomplete : on la garde, mais on repasse vite
-                    if repondu is not None and len(repondu) < len(CHAINES_EVM):
+                    muettes = chaines_attendues() - (repondu or set())
+                    if repondu is not None and muettes:
                         cache[a]["at"] = time.time() - (TTL_H * 3600 - 900)
-                        cache[a]["partiel"] = sorted(set(CHAINES_EVM) - repondu)
+                        cache[a]["partiel"] = sorted(muettes)
                 # ecriture au fil de l'eau : un arret en plein passage faisait
                 # perdre les quatre minutes de lecture deja faites
                 if (lus + spam) % 8 == 0:
