@@ -1302,7 +1302,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip gold" data-f="top">A+ / A / A- <i>{{ counts.top }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
     <button class="chip" data-f="running">Running <i>{{ counts.running }}</i></button>
-    <button class="chip" data-f="early">Phase Early <i>{{ counts.early }}</i></button>
+    <button class="chip" data-f="early">Jeune <i>{{ counts.early }}</i></button>
     <button class="chip" data-f="retest">Retest <i>{{ counts.retest }}</i></button>
     <button class="chip" data-f="compress">Compressing <i>{{ counts.compress }}</i></button>
   </div>
