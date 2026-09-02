@@ -596,9 +596,13 @@ def publier(log=print) -> bool:
         return False
 
     import subprocess
+    # Sous Windows, une application sans console qui lance git fait clignoter
+    # une fenetre noire a chaque appel. CREATE_NO_WINDOW l'empeche.
+    sans_fenetre = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
     def git(*args):
         return subprocess.run(("git",) + args, cwd=racine, capture_output=True,
-                              text=True, timeout=90)
+                              text=True, timeout=90, creationflags=sans_fenetre)
     try:
         # on ne commite QUE ce fichier : le reste du depot ne nous regarde pas
         git("add", FICHIER_ENC)
