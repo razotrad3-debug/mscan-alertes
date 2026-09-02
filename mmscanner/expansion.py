@@ -24,9 +24,27 @@ import os
 import time
 from typing import Dict, List, Optional
 
+import requests
+
 import config
 
+_SESSION = requests.Session()
+
 WATCH_FILE = config.path("expansion_watch.json")
+NEES_FILE = config.path("paires_nees.json")     # jetons deja vus naitre
+
+# Robinhood n'a ni classement par volume ni API de tendance : le seul moyen
+# d'y voir un coin AVANT qu'il bouge est de regarder naitre sa pool. Toutes
+# passent par la factory Uniswap v3 de la chaine, contrat verifie, dont les
+# transactions sont decodees par Blockscout.
+FACTORIES = {
+    "robinhood": {
+        "explorateur": "https://robinhoodchain.blockscout.com",
+        "factory": "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
+        "quote": "0x0bd7d308f8e1639fab988df18a8011f41eacad73",   # WETH
+    },
+}
+FENETRE_NEE_H = 36.0     # un coin tout neuf merite plus de temps qu'un autre
 
 FENETRE_H = 10.0         # duree pendant laquelle un coin arme reste surveille
 SEUIL_M5 = 20.0          # % sur 5 min qui signale l'impulsion
@@ -39,7 +57,13 @@ MIN_LIQ = 12_000.0
 MIN_VOL_M5 = 1_500.0     # dollars echanges sur la bougie du repli
 MIN_ACHATS_M5 = 5        # des acheteurs reviennent deja
 COOLDOWN_H = 12.0        # on ne resignale pas le meme coin avant ca
-MAX_SURVEILLES = 220
+MAX_SURVEILLES = 300
+# Un spammeur peut deployer cinquante jetons clones d'un coup : les coins
+# venus des wallets suivis et du radar passent devant, les naissances
+# ensuite. Une naissance qui n'a toujours aucune paire indexee au bout de
+# trois heures est abandonnee.
+PRIORITE = {"insider": 0, "radar": 1, "naissance": 2}
+DELAI_NEE_MORTE_H = 3.0
 
 
 # ── etat sur disque ────────────────────────────────────────────────
@@ -62,7 +86,8 @@ def _ecrire(d: dict) -> None:
 
 
 def armer(mint: str, chain: str = "", symbol: str = "",
-          groupes: List[str] = None, source: str = "") -> bool:
+          groupes: List[str] = None, source: str = "",
+          fenetre_h: float = None) -> bool:
     """
     Met un coin sous surveillance rapprochee.
 
@@ -83,6 +108,8 @@ def armer(mint: str, chain: str = "", symbol: str = "",
         return False
     d[mint] = {"at": time.time(), "chain": chain, "symbol": symbol,
                "groupes": list(groupes or []), "source": source}
+    if fenetre_h:
+        d[mint]["fenetre"] = fenetre_h
     _ecrire(d)
     return True
 
@@ -95,6 +122,74 @@ def armer_lot(coins: List[dict], source: str = "") -> int:
                  c.get("groupes"), source):
             n += 1
     return n
+
+
+# ── naissances : voir un coin avant qu'il bouge ─────────────────────
+def _lire_nees() -> dict:
+    try:
+        with open(NEES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def armer_naissances(log=print) -> int:
+    """
+    Arme les jetons dont la pool vient d'etre creee.
+
+    Un coin nait toujours avec une pool vide : on ne juge donc rien ici, on se
+    contente d'ouvrir l'oeil. Le controle de liquidite se fait au moment de
+    l'alerte, quand il y a quelque chose a acheter.
+
+    Beaucoup de creations sont du spam — un meme jeton recree avec plusieurs
+    paliers de frais. On dedoublonne par jeton.
+    """
+    from mmscanner import sources_evm as evm
+
+    vus = _lire_nees()
+    maintenant = time.time()
+    # on oublie ce qui est vu depuis plus de trois jours, le fichier reste petit
+    vus = {k: v for k, v in vus.items() if maintenant - v < 3 * 86400}
+
+    total = 0
+    for chaine, cfg in FACTORIES.items():
+        try:
+            r = _SESSION.get(
+                f"{cfg['explorateur']}/api/v2/addresses/{cfg['factory']}/transactions",
+                headers=evm.ENTETES, params={"filter": "to"}, timeout=30)
+            if r.status_code != 200:
+                continue
+            items = (r.json() or {}).get("items") or []
+        except Exception as e:
+            log(f"[naissance] {chaine} : {e}")
+            continue
+
+        quote = (cfg.get("quote") or "").lower()
+        for t in items:
+            di = t.get("decoded_input") or {}
+            ps = {p.get("name"): p.get("value") for p in (di.get("parameters") or [])}
+            a, b = ps.get("tokenA"), ps.get("tokenB")
+            if not a or not b:
+                continue
+            jeton = b if a.lower() == quote else a
+            cle = jeton.lower()
+            if cle in vus:
+                continue
+            vus[cle] = maintenant
+            if armer(jeton, chaine, "", None, "naissance", FENETRE_NEE_H):
+                total += 1
+
+    try:
+        tmp = NEES_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(vus, f)
+        os.replace(tmp, NEES_FILE)
+    except Exception:
+        pass
+
+    if total:
+        log(f"[naissance] {total} nouvelle(s) paire(s) sous veille")
+    return total
 
 
 # ── message ────────────────────────────────────────────────────────
@@ -152,41 +247,57 @@ def _message(e: dict, d: dict) -> str:
 
 
 # ── tour de veille ─────────────────────────────────────────────────
-def poll(log=print) -> int:
-    """Un tour. Retourne le nombre d'alertes envoyees."""
+def poll(log=print, envoyer: bool = None) -> int:
+    """
+    Un tour de veille. Retourne le nombre d'alertes envoyees.
+
+    envoyer=False : on suit l'etat des coins sans rien envoyer. C'est ce que
+    fait l'application de bureau — elle tient la liste a jour pour l'afficher,
+    pendant que le cloud garde le monopole des alertes.
+    """
     from mmscanner import holdings, safety, telegram_alerts as tg
     from mmscanner.engine import is_crypto_native
 
-    # un seul emetteur : sans cette garde, l'application de bureau doublerait
-    # les alertes du cloud, comme c'est deja arrive
-    if not tg.alerts_enabled():
-        return 0
+    if envoyer is None:
+        envoyer = tg.alerts_enabled()
 
     d = _lire()
     if not d:
         return 0
 
     maintenant = time.time()
-    limite = maintenant - FENETRE_H * 3600
-    vivants = {m: e for m, e in d.items() if (e.get("at") or 0) >= limite}
+    vivants = {m: e for m, e in d.items()
+               if (e.get("at") or 0) >= maintenant - (e.get("fenetre") or FENETRE_H) * 3600}
     if len(vivants) != len(d):
         d = vivants
     if not d:
         _ecrire(d)
         return 0
 
-    mints = list(d)[:MAX_SURVEILLES]
+    mints = sorted(d, key=lambda m: (PRIORITE.get(d[m].get("source"), 3),
+                                     -(d[m].get("at") or 0)))[:MAX_SURVEILLES]
     infos = holdings._metriques(mints)
 
     envoyees = 0
     for m in mints:
         e, x = d[m], infos.get(m)
         if not x:
+            # nee sans marche et toujours rien : elle ne donnera rien
+            if (e.get("source") == "naissance" and not e.get("impulsion_at")
+                    and maintenant - (e.get("at") or 0) > DELAI_NEE_MORTE_H * 3600):
+                d.pop(m, None)
             continue
         e["mint"] = m
         mc = x.get("mc") or 0.0
         if mc <= 0:
             continue
+        # on retient les derniers chiffres : l'interface les affiche sans
+        # avoir a redemander quoi que ce soit au reseau
+        e.update(symbol=x.get("symbol") or e.get("symbol"),
+                 chain=x.get("chain") or e.get("chain"),
+                 pair=x.get("pair") or e.get("pair"),
+                 mc=mc, liq=x.get("liquidity_usd"),
+                 chg_h1=x.get("chg_h1"), chg_m5=x.get("chg_m5"), vu=maintenant)
 
         # ── temps 1 : on cherche l'impulsion, sans rien envoyer
         if not e.get("impulsion_at"):
@@ -242,6 +353,9 @@ def poll(log=print) -> int:
                 log(f"[expansion] {x.get('symbol')} ecarte : autorites actives")
                 continue
 
+        if not envoyer:
+            e["pret"] = maintenant      # zone d'entree atteinte, sans envoi
+            continue
         if tg.send(_message(e, x)):
             envoyees += 1
             e["alerte_at"] = maintenant

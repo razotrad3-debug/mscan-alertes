@@ -149,6 +149,8 @@ def main():
     # Le scan complet passe par les classements volume : il voit un coin une
     # fois qu'il a bouge. Cette veille regarde les wallets suivis toutes les
     # 60 s et signale l'entree elle-meme, donc avant le classement.
+    _naissances = {"at": 0.0}
+
     def _veille():
         try:
             insider_watch.poll(amorcage=True)   # 1er tour : on note sans alerter
@@ -162,6 +164,11 @@ def main():
                 print(f"[insider] {e}")
             try:
                 from mmscanner import expansion
+                # les naissances toutes les 5 min : sur Robinhood il sort
+                # environ sept jetons par jour, inutile de regarder plus vite
+                if time.time() - _naissances["at"] > 300:
+                    _naissances["at"] = time.time()
+                    expansion.armer_naissances()
                 expansion.poll()
             except Exception as e:
                 print(f"[expansion] {e}")

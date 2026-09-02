@@ -174,7 +174,21 @@ def create_app():
             "retest": sum(1 for p in ranked if p.phase == "Retest"),
             "compress": sum(1 for p in ranked if p.phase == "Compressing"),
         }
-        return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra, counts=counts,
+        # coins sous veille d'expansion : reperes avant d'etre notes
+        try:
+            from mmscanner import expansion
+            connus = {p.mint for p in ranked} | {c.get("mint") for c in extra}
+            veille = [dict(e, mint=m) for m, e in expansion._lire().items()
+                      if e.get("mc") and m not in connus]
+            veille.sort(key=lambda e: (bool(e.get("impulsion_at")),
+                                       e.get("mc") or 0), reverse=True)
+            veille = veille[:40]
+        except Exception:
+            veille = []
+        counts["veille"] = len(veille)
+
+        return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra,
+                                      veille=veille, counts=counts,
                                       chains=chains, chainmeta=config.CHAIN_META,
                                       meta=meta, active="radar",
                                       prog=meta.get("progress", {}),
@@ -542,6 +556,15 @@ def scan_loop(demo: bool = False):
                 hmod.lancer_en_fond(sur_fin=_garder)
             except Exception as e:
                 print(f"[holdings] {e}")
+
+            # veille d'expansion : on arme les nouvelles paires et on suit
+            # leur etat pour l'afficher. L'envoi reste au cloud.
+            try:
+                from mmscanner import expansion
+                expansion.armer_naissances()
+                expansion.poll(envoyer=False)
+            except Exception as e:
+                print(f"[expansion] {e}")
 
             # les smart wallets se mettent a jour tout seuls sur les coins
             # qui viennent de percer (toutes les DISCOVER_INTERVAL_H heures)
@@ -1176,7 +1199,10 @@ function applyFilter(f){
       ch=it.getAttribute('data-chain')||'solana',
       w=parseInt(it.getAttribute('data-wallets')||'0',10),ok=true;
   if(curChain!=='all'&&ch!==curChain){it.hidden=true;return;}
-  if(f==='conv')      ok = w>=2;
+  var vl=it.getAttribute('data-veille')==='1';
+  if(f!=='veille'&&vl){it.hidden=true;return;}   // la veille a son propre onglet
+  if(f==='veille')    ok = vl;
+  else if(f==='conv') ok = w>=2;
   else if(f==='top')  ok = (g==='A+'||g==='A'||g==='A-');
   else if(f==='wallet')ok = w>=1;
   else if(f==='running')  ok = ph==='Running';
@@ -1272,15 +1298,16 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
   <div class="chips">
     <button class="chip on" data-f="tous">Tous <i>{{ counts.tous }}</i></button>
     <button class="chip gold" data-f="conv">Convergence <i>{{ counts.conv }}</i></button>
+    <button class="chip gold" data-f="veille">Early <i>{{ counts.veille }}</i></button>
     <button class="chip gold" data-f="top">A+ / A / A- <i>{{ counts.top }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
     <button class="chip" data-f="running">Running <i>{{ counts.running }}</i></button>
-    <button class="chip" data-f="early">Early <i>{{ counts.early }}</i></button>
+    <button class="chip" data-f="early">Phase Early <i>{{ counts.early }}</i></button>
     <button class="chip" data-f="retest">Retest <i>{{ counts.retest }}</i></button>
     <button class="chip" data-f="compress">Compressing <i>{{ counts.compress }}</i></button>
   </div>
 
-  {% if pairs or extra %}
+  {% if pairs or extra or veille %}
   <div class="rows" id="rows">
     {% for p in pairs %}{{ row(p) }}{% endfor %}
     {% for c in extra %}
@@ -1297,6 +1324,24 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
           <a class="ic" title="GMGN" href="{{ gmgnlink(c.chain, c.mint) }}" target="_blank">{{ icon('chart') }}</a>
           <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
           <button class="ic" title="Copier" onclick="cp(this,'{{ c.mint }}')">{{ icon('copy') }}</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% for c in veille %}
+    <div class="item" data-mint="{{ c.mint }}" data-grade="—" data-phase="—"
+         data-chain="{{ c.chain or 'solana' }}" data-wallets="0" data-veille="1">
+      <div class="r" style="grid-template-columns:38px minmax(0,1fr) 96px auto">
+        <div class="gr" style="--gc:#7cc4ff;color:#7cc4ff;font-size:9px;letter-spacing:.1em">
+          {{ 'REPLI' if c.pret else ('IMPULS' if c.impulsion_at else 'VEILLE') }}</div>
+        <div class="id"><div class="n">{{ c.symbol or '?' }}</div>
+          <div class="s">{{ 'sous surveillance' if not c.impulsion_at else 'impulsion repérée' }}
+            · {{ c.source or 'veille' }}{% if c.liq %} · liq {{ c.liq|fmt }}{% endif %}</div></div>
+        <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
+          <div class="c num {{ 'up' if (c.chg_h1 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1 or 0) }}%</div></div>
+        <div class="acts">
+          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
         </div>
       </div>
     </div>
@@ -1390,11 +1435,11 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
   {% if coins %}
   <div class="rows">
     {% for c in coins %}
-    <div class="item">
+    <div class="item" data-mint="{{ c.mint }}">
       <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
         <div class="gr" style="--gc:var(--gold);color:{{ 'var(--gold)' if c.holders > 1 else 'var(--fg-3)' }}">{{ c.holders }}</div>
         <div class="id">
-          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}</span>{% endif %}{% if c.dip %} <span class="tag" style="color:#7cc4ff;border-color:rgba(124,196,255,.4)">CONVICTION</span>{% endif %}{% if c.neuf %} <span class="tag" style="color:#4ade80;border-color:rgba(74,222,128,.4)">NOUVEAU</span>{% endif %}</div>
+          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}</span>{% endif %}{% if c.dip %} <span class="tag" style="color:#7cc4ff;border-color:rgba(124,196,255,.4)">CONVICTION</span>{% endif %}{% if c.neuf %} <span class="tag neuf" data-neuf="{{ c.mint }}" title="Cliquer pour marquer comme vu" style="color:#4ade80;border-color:rgba(74,222,128,.4);cursor:pointer">NOUVEAU</span>{% endif %}</div>
           <div class="s">{{ c.name }} ·
             {% for g in c.groupes %}<span class="grp" style="color:{{ g.couleur }}">{{ g.nom }}{% if g.n > 1 %} ×{{ g.n }}{% endif %}</span>{% if not loop.last %}<span class="grpsep">·</span>{% endif %}{% endfor %}
           </div>
@@ -1427,7 +1472,28 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
     <b>Nouveau</b> signale un achat des 48 dernières heures. La note (A+, B…) est celle du radar quand le coin y est passé.
     Écartés d'office : majors et actions, capitalisation au-dessus d'un milliard, liquidité sous $25K, volume fabriqué, et tout token
     dont l'émetteur garde le pouvoir de geler ou d'imprimer.</div>
-</div></body></html>""")
+</div>
+<script>
+// L'etiquette NOUVEAU disparait des qu'on a regarde le coin — au clic sur
+// l'etiquette, ou en ouvrant la ligne. Garde en memoire du navigateur, donc
+// elle ne revient pas au rafraichissement.
+(function(){
+ var vus={};
+ try{vus=JSON.parse(localStorage.getItem('mscan_vus')||'{}');}catch(_){}
+ function nettoyer(){
+  document.querySelectorAll('.tag.neuf').forEach(function(b){
+   if(vus[b.getAttribute('data-neuf')])b.remove();});}
+ nettoyer();
+ document.addEventListener('click',function(e){
+  var b=e.target.closest('.tag.neuf'), ligne=e.target.closest('.item[data-mint]');
+  var mint=b?b.getAttribute('data-neuf'):(ligne?ligne.getAttribute('data-mint'):null);
+  if(!mint)return;
+  vus[mint]=1;
+  try{localStorage.setItem('mscan_vus',JSON.stringify(vus));}catch(_){}
+  nettoyer();});
+})();
+</script>
+</body></html>""")
 
 
 PAGE_ALERTES = (_H + "<title>MSCAN · Alertes</title>" + STYLE + "</head><body>"

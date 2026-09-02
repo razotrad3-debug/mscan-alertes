@@ -41,6 +41,7 @@ jobs:
             telegram_msgids.json
             insider_seen.json
             expansion_watch.json
+            paires_nees.json
             pool_cache.json
             holdings_cache.json
             holdings.json
@@ -73,6 +74,7 @@ jobs:
             telegram_msgids.json
             insider_seen.json
             expansion_watch.json
+            paires_nees.json
             pool_cache.json
             holdings_cache.json
             holdings.json
