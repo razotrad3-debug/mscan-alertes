@@ -272,86 +272,71 @@ def create_app():
                                       msg=msg, err=err, meta=meta, active="wallets",
                                       helius=bool(config.HELIUS_API_KEY))
 
-    @app.route("/positions")
-    def positions():
-        with _LOCK:
-            meta = dict(STATE)
-        try:
-            from mmscanner.followed import split_group
-        except Exception:
-            split_group = lambda l: ("Suivi", l)
-
-        # au demarrage l'etat en memoire est vide : on repart du dernier
-        # releve ecrit sur disque plutot que d'afficher une page vide
-        bruts = (meta.get("followed") or {}).get("coins") or []
-        releve = meta.get("followed_at") or 0
-        if not bruts:
-            from mmscanner import followed as _f
-            d = _f.load_buys()
-            bruts, releve = d["coins"], d["at"]
-
-        coins = []
-        for c in bruts:
-            g = {}
-            for lab in c.get("by", []):
-                grp = split_group(lab)[0] or "Suivi"
-                g[grp] = g.get(grp, 0) + 1
-            c = dict(c)
-            # provenance par groupe, jamais les pseudos
-            c["groups"] = ", ".join(f"{k} ×{v}" if v > 1 else k
-                                    for k, v in sorted(g.items(), key=lambda kv: -kv[1]))
-            coins.append(c)
-        # le plus de monde dessus en premier, puis l'achat le plus recent
-        coins.sort(key=lambda c: (len(c.get("by", [])), c.get("ts", 0)), reverse=True)
-
-        return render_template_string(PAGE_POSITIONS, coins=coins, meta=meta,
-                                      updated=releve,
-                                      active="holdings",
-                                      helius=bool(config.HELIUS_API_KEY))
-
     @app.route("/holdings")
     def holdings_page():
-        """Ce que les wallets suivis detiennent — coins etablis, pas lancements."""
+        """Ce que les wallets suivis detiennent — une seule liste, filtrable."""
         from mmscanner import holdings as hmod
         with _LOCK:
             meta = dict(STATE)
         data = meta.get("holdings") or hmod.load()
 
+        # note du radar, quand le coin y est passe : elle situe le setup
+        notes = {p.mint: p.grade for p in (meta.get("pairs") or [])}
+        # achete dans les 48 h : le coin est chaud, pas seulement detenu
+        try:
+            from mmscanner.followed import recent_mints
+            recents = set(recent_mints(48))
+        except Exception:
+            recents = set()
+
+        tous = list(data.get("coins") or []) + list(data.get("solo") or [])
         coins = []
-        for c in data.get("coins", []):
-            g = {}
-            for grp in c.get("by", []):
-                g[grp or "Suivi"] = g.get(grp or "Suivi", 0) + 1
+        for c in tous:
             c = dict(c)
-            c["groups"] = ", ".join(f"{k} ×{v}" if v > 1 else k
-                                    for k, v in sorted(g.items(), key=lambda kv: -kv[1]))
+            g = {}
+            for grp in (c.get("by") or []):
+                grp = grp or "Suivi"
+                g[grp] = g.get(grp, 0) + 1
+            # ordre canonique : la provenance se lit toujours au meme endroit
+            c["groupes"] = [
+                {"nom": k, "n": v, "couleur": config.COULEUR_GROUPE.get(k, "#7a7a82")}
+                for k, v in sorted(g.items(), key=lambda kv: config.rang_groupe(kv[0]))
+            ]
+            c["fomo"] = any(x["nom"] != "on-chain" for x in c["groupes"])
+            c["grade"] = notes.get(c.get("mint"))
+            c["neuf"] = c.get("mint") in recents
             coins.append(c)
 
-        solo = []
-        for c in data.get("solo", []):
-            c = dict(c)
-            c["groups"] = ", ".join(sorted(set(c.get("by") or []))) or "Suivi"
-            solo.append(c)
-
         tri = request.args.get("tri", "convergence")
-        if tri == "mc":
+        if tri == "solo":
+            coins = [c for c in coins if c.get("holders", 0) <= 1]
+            coins.sort(key=lambda c: c.get("value_usd", 0), reverse=True)
+        elif tri == "fomo":
+            coins = [c for c in coins if c.get("fomo")]
+            coins.sort(key=lambda c: (c.get("holders", 0), c.get("value_usd", 0)),
+                       reverse=True)
+        elif tri == "mc":
             coins.sort(key=lambda c: c.get("mc") or 0, reverse=True)
+        elif tri == "dollars":
+            coins.sort(key=lambda c: c.get("value_usd", 0), reverse=True)
         elif tri == "conviction":
-            # les coins en repli d'abord, et parmi eux le plus de wallets en
-            # haut : la conviction se mesure au nombre de gens qui tiennent,
-            # pas a la profondeur de la baisse
             coins.sort(key=lambda c: (bool(c.get("dip")), c.get("holders", 0),
                                       c.get("value_usd", 0)), reverse=True)
         else:
             coins.sort(key=lambda c: (c.get("holders", 0), c.get("value_usd", 0)),
                        reverse=True)
 
-        return render_template_string(PAGE_HOLDINGS, coins=coins, solo=solo,
-                                      meta=meta,
+        return render_template_string(PAGE_HOLDINGS, coins=coins, meta=meta,
                                       tri=tri, updated=data.get("at"),
                                       nwallets=data.get("wallets", 0),
                                       active="holdings",
                                       helius=bool(config.HELIUS_API_KEY))
+
+    @app.route("/positions")
+    def positions_redirect():
+        """Positions a fusionne avec Holdings : meme question, meme reponse."""
+        from flask import redirect
+        return redirect("/holdings")
 
     @app.route("/adresses", methods=["GET", "POST"])
     def adresses():
@@ -819,6 +804,10 @@ details[open]>summary .wchev{transform:rotate(180deg)}
 .chains .ch.on i{color:var(--cc)}
 .chains .clogo{display:flex;color:var(--cc)}
 .chains .clogo svg{width:12px;height:12px}
+.tag{font-size:7.5px;letter-spacing:.05em;border:1px solid;border-radius:var(--r);
+ padding:0 4px;vertical-align:2px;font-weight:600}
+.grp{font-weight:600}
+.grpsep{color:var(--fg-4);margin:0 4px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
 .chips .chip{background:var(--surface);border:1px solid var(--hair);color:var(--fg-3);
  padding:7px 13px;border-radius:var(--r);cursor:pointer;font-size:10px;font-weight:600;
@@ -970,13 +959,6 @@ MACROS = r"""
   <a href="/flow" class="{{ 'on' if cur=='flow' }}">Flux</a>
   <a href="/adresses" class="{{ 'on' if cur=='adresses' }}">Mes adresses</a>
   <a href="/alertes" class="{{ 'on' if cur=='alertes' }}">Alertes</a>
-</div>
-{% endmacro %}
-
-{% macro tabs_holdings(cur) %}
-<div class="subtabs">
-  <a href="/holdings" class="{{ 'on' if cur=='detenus' }}">Détenus</a>
-  <a href="/positions" class="{{ 'on' if cur=='positions' }}">Positions</a>
 </div>
 {% endmacro %}
 
@@ -1390,68 +1372,19 @@ PAGE_WALLETS = (_H + "<title>MSCAN · Wallets</title>" + STYLE + "</head><body>"
 </div></body></html>""")
 
 
-PAGE_POSITIONS = (_H + "<title>MSCAN · Positions</title>" + STYLE + "</head><body>"
-                  + MACROS + CHROME + r"""
-<div class="page">
-  {{ tabs_holdings('positions') }}
-  <div class="sechead"><h1>Positions communes</h1>
-    <span class="sub">ce qu'ils viennent d'acheter · 72 dernières heures · les plus partagés en haut</span></div>
-  <div class="explain">Chaque ligne est un coin achété récemment par au moins une adresse suivie.
-    Plus il y a de monde dessus, plus il remonte : <b>c'est la convergence qui compte</b>, pas la taille d'un achat isolé.
-    Mis à jour à chaque scan{% if updated %} · dernier relevé {{ updated|ago }}{% endif %}.</div>
-
-  {% if coins %}
-  <div class="rows">
-    {% for c in coins %}
-    <div class="item">
-      <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
-        <div class="gr" style="--gc:var(--gold);color:var(--gold)">{{ c.by|length }}</div>
-        <div class="id">
-          <div class="n">{{ c.symbol or c.name }}</div>
-          <div class="s">{{ c.name }} · {{ c.groups }}</div>
-        </div>
-        <div class="val">
-          <div class="m num">{{ c.mc|fmt }}</div>
-          <div class="c num {{ 'up' if (c.chg_h24 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h24 or 0) }}%</div>
-        </div>
-        <div class="val">
-          <div class="m num" style="font-size:12px;color:var(--fg-3)">{{ c.vol_h24|fmt }}</div>
-          <div class="c" style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-4)">vol 24h</div>
-        </div>
-        <div class="acts">
-          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
-          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
-        </div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="empty"><span class="big">Aucune position relevée</span>
-    Ajoute des adresses dans <b>Mes adresses</b> — leurs achats des 72 dernières heures<br>
-    apparaîtront ici, classés par nombre de wallets sur le même coin.</div>
-  {% endif %}
-</div></body></html>""")
-
-
 PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body>"
                  + MACROS + CHROME + r"""
 <div class="page">
-  {{ tabs_holdings('detenus') }}
-  <div class="sechead"><h1>Ce qu'ils gardent</h1>
-    <span class="sub">portefeuilles des wallets suivis · coins établis, pas des lancements</span></div>
-  <div class="explain"><b>Positions</b>, l'onglet d'à côté, montre ce qu'ils viennent d'acheter. Ici, ce qu'ils <b>détiennent encore</b> :
-    des coins déjà installés, avec une capitalisation et une reconnaissance. Le setup n'est pas le même —
-    on ne cherche pas l'entrée la plus tôt, on cherche <b>un point d'entrée sous le leur</b>.
-    Un coin entre dans la liste dès que <b>2 adresses suivies</b> en portent pour plus de $200 chacune.
-    Le badge <b>CONVICTION</b> marque ceux qui reculent de 10 % ou plus sur 24 h alors qu'ils les tiennent toujours :
-    ils n'ont pas vendu dans la baisse, donc tu entres plus bas qu'eux.
-    {% if nwallets %}{{ nwallets }} portefeuilles lus{% endif %}{% if updated %} · relevé {{ updated|ago }}{% endif %}.</div>
+  <div class="sechead"><h1>Ce qu'ils tiennent</h1>
+    <span class="sub">{{ coins|length }} coins · {{ nwallets }} portefeuilles lus{% if updated %} · relevé {{ updated|ago }}{% endif %}</span></div>
 
   <div class="chips">
     <a class="chip {{ 'on' if tri=='convergence' }}" href="/holdings">Convergence</a>
+    <a class="chip {{ 'on' if tri=='dollars' }}" href="/holdings?tri=dollars">Dollars détenus</a>
     <a class="chip {{ 'on' if tri=='mc' }}" href="/holdings?tri=mc">Market cap</a>
     <a class="chip {{ 'on' if tri=='conviction' }}" href="/holdings?tri=conviction">Conviction</a>
+    <a class="chip {{ 'on' if tri=='solo' }}" href="/holdings?tri=solo">Tenu par 1</a>
+    <a class="chip gold {{ 'on' if tri=='fomo' }}" href="/holdings?tri=fomo">FOMO</a>
   </div>
 
   {% if coins %}
@@ -1459,10 +1392,12 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
     {% for c in coins %}
     <div class="item">
       <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
-        <div class="gr" style="--gc:var(--gold);color:var(--gold)">{{ c.holders }}</div>
+        <div class="gr" style="--gc:var(--gold);color:{{ 'var(--gold)' if c.holders > 1 else 'var(--fg-3)' }}">{{ c.holders }}</div>
         <div class="id">
-          <div class="n">{{ c.symbol }}{% if c.dip %} <span style="font-size:7.5px;letter-spacing:.05em;color:#7cc4ff;border:1px solid rgba(124,196,255,.4);border-radius:var(--r);padding:0 4px;vertical-align:2px">CONVICTION</span>{% endif %}</div>
-          <div class="s">{{ c.name }} · {{ c.groups }}</div>
+          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}</span>{% endif %}{% if c.dip %} <span class="tag" style="color:#7cc4ff;border-color:rgba(124,196,255,.4)">CONVICTION</span>{% endif %}{% if c.neuf %} <span class="tag" style="color:#4ade80;border-color:rgba(74,222,128,.4)">NOUVEAU</span>{% endif %}</div>
+          <div class="s">{{ c.name }} ·
+            {% for g in c.groupes %}<span class="grp" style="color:{{ g.couleur }}">{{ g.nom }}{% if g.n > 1 %} ×{{ g.n }}{% endif %}</span>{% if not loop.last %}<span class="grpsep">·</span>{% endif %}{% endfor %}
+          </div>
         </div>
         <div class="val">
           <div class="m num">{{ c.mc|fmt }}</div>
@@ -1486,39 +1421,12 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
     Reviens dans quelques minutes — ou ajoute des adresses dans <b>Mes adresses</b>.</div>
   {% endif %}
 
-  {% if solo %}
-  <div class="sechead" style="margin-top:34px"><h1>Tenus par un seul</h1>
-    <span class="sub">un wallet suivi, seul sur le coin · position la plus grosse en haut</span></div>
-  <div class="explain">Pas de convergence ici : <b>une seule adresse suivie</b> est dessus. C'est plus tôt,
-    et plus risqué — mais c'est là qu'un KOL prend position avant que les autres suivent.
-    Le classement se fait sur <b>la taille de la position</b>, seule mesure de conviction quand il n'y a qu'un porteur.
-    Mêmes garde-fous que ci-dessus : liquidité réelle, volume réel, autorités révoquées.</div>
-  <div class="rows">
-    {% for c in solo %}
-    <div class="item">
-      <div class="r" style="grid-template-columns:52px minmax(0,1fr) 120px 108px auto">
-        <div class="gr" style="--gc:var(--fg-3);color:var(--fg-3);font-size:11px">1</div>
-        <div class="id">
-          <div class="n">{{ c.symbol }}{% if c.dip %} <span style="font-size:7.5px;letter-spacing:.05em;color:#7cc4ff;border:1px solid rgba(124,196,255,.4);border-radius:var(--r);padding:0 4px;vertical-align:2px">CONVICTION</span>{% endif %}</div>
-          <div class="s">{{ c.name }} · {{ c.groups }}</div>
-        </div>
-        <div class="val">
-          <div class="m num">{{ c.mc|fmt }}</div>
-          <div class="c num {{ 'up' if (c.chg_h24 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h24 or 0) }}%</div>
-        </div>
-        <div class="val">
-          <div class="m num" style="font-size:12px;color:var(--gold-2)">{{ c.value_usd|fmt }}</div>
-          <div class="c" style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-4)">position</div>
-        </div>
-        <div class="acts">
-          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
-          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
-        </div>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
+  <div class="explain" style="margin-top:22px;margin-bottom:0">Ce que les adresses suivies <b>portent en ce moment</b>, Solana et EVM confondues.
+    Le chiffre de gauche est le nombre de wallets sur le coin ; une position compte à partir de $200, en dessous c'est de la poussière.
+    <b>Conviction</b> marque un recul de 10 % ou plus sur 24 h alors qu'ils tiennent toujours — tu entres sous eux.
+    <b>Nouveau</b> signale un achat des 48 dernières heures. La note (A+, B…) est celle du radar quand le coin y est passé.
+    Écartés d'office : majors et actions, capitalisation au-dessus d'un milliard, liquidité sous $25K, volume fabriqué, et tout token
+    dont l'émetteur garde le pouvoir de geler ou d'imprimer.</div>
 </div></body></html>""")
 
 

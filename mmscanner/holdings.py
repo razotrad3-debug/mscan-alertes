@@ -69,6 +69,10 @@ BUDGET_S = 240.0
 # (un wallet vu ici portait 10 910 jetons) : ses "avoirs" ne disent rien et
 # ses airdrops se retrouveraient en tete du classement par convergence.
 MAX_MINTS_WALLET = 600
+# Un wallet Robinhood actif porte couramment 800 lignes sans etre un aimant a
+# spam : le plafond ne vaut que pour Solana, ou 600 jetons signalent autre
+# chose qu'un trader.
+MAX_MINTS_EVM = 4000
 # Sonde prealable : on demande d'abord la LISTE des comptes sans leur contenu
 # (dataSlice de longueur nulle). Quelques kilo-octets suffisent alors a voir
 # qu'un wallet en porte 22 000 — au lieu de telecharger 40 Mo pour le jeter.
@@ -149,6 +153,59 @@ def rpc(method: str, params: list, essais: int = 3):
     return None
 
 
+CHAINES_EVM = ("robinhood", "ethereum", "base")
+
+
+def _comptes_evm(addr: str):
+    """
+    Avoirs d'une adresse EVM, chaine par chaine.
+
+    Blockscout rend le solde ET un cours pour chaque jeton : on peut donc
+    ecarter la poussiere tout de suite, sans passer par DexScreener. Un wallet
+    Robinhood porte couramment 800 lignes dont l'essentiel ne vaut rien.
+
+    Retour : ({mint: quantite}, {mint: chaine}) ou None si tout a echoue.
+    """
+    from mmscanner import sources_evm as evm
+
+    qtes, chaines, ok = {}, {}, False
+    for chaine in CHAINES_EVM:
+        hotes = evm.ENDPOINTS.get(chaine) or []
+        for h in hotes:
+            if h["kind"] != "blockscout" or not evm._alive(h["base"]):
+                continue
+            try:
+                r = _SESSION.get(
+                    f"{h['base']}/api/v2/addresses/{addr}/token-balances",
+                    headers=evm.ENTETES, timeout=30)
+                r.raise_for_status()
+                lignes = r.json() or []
+            except Exception:
+                evm._mark_dead(h["base"])
+                continue
+            ok = True
+            for it in lignes:
+                t = it.get("token") or {}
+                mint = t.get("address_hash") or t.get("address")
+                if not mint:
+                    continue
+                try:
+                    dec = int(t.get("decimals") or 0)
+                    q = float(it.get("value") or 0) / (10 ** dec)
+                    cours = float(t.get("exchange_rate") or 0)
+                except Exception:
+                    continue
+                if q <= 0:
+                    continue
+                # sans cours connu on garde : DexScreener tranchera
+                if cours and q * cours < MIN_POS_USD:
+                    continue
+                qtes[mint] = qtes.get(mint, 0.0) + q
+                chaines[mint] = chaine
+            break
+    return (qtes, chaines) if ok else None
+
+
 def _comptes(addr: str):
     """
     {mint: quantite} pour une adresse Solana, soldes nuls exclus.
@@ -158,6 +215,9 @@ def _comptes(addr: str):
     """
     if _DEADLINE and time.time() > _DEADLINE:
         return "budget"        # pas essaye : ni echec, ni oubli
+
+    if addr.startswith("0x"):
+        return _comptes_evm(addr)
 
     total = 0
     for prog in TOKEN_PROGRAMS:
@@ -253,8 +313,12 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                     e["at"] = time.time() - (TTL_H * 3600 - recul)
                     cache[a] = e
                     continue
+                chaines = {}
+                if isinstance(mints, tuple):        # lecture EVM
+                    mints, chaines = mints
                 lus += 1
-                if "__spam__" in mints or len(mints) > MAX_MINTS_WALLET:
+                plafond = MAX_MINTS_EVM if a.startswith("0x") else MAX_MINTS_WALLET
+                if "__spam__" in mints or len(mints) > plafond:
                     # aimant a spam : on retient le verdict, pas les jetons
                     n = int(mints.get("__spam__") or len(mints))
                     cache[a] = {"at": time.time(), "spam": True,
@@ -263,6 +327,8 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                 else:
                     cache[a] = {"at": time.time(), "n": len(mints),
                                 "mints": mints}
+                    if chaines:
+                        cache[a]["chains"] = chaines
         _DEADLINE = 0.0
         _ecrire_cache(cache)
         log(f"[holdings] {lus}/{len(perimes)} portefeuilles relus"
@@ -274,6 +340,15 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
     # compte pour le comptage smart-money du scanner
     return {a: cache[a].get("mints") or {} for a in adresses
             if a in cache and not cache[a].get("spam") and cache[a].get("n")}
+
+
+def chaines_connues(adresses: List[str]) -> dict:
+    """{mint: chaine} pour les avoirs EVM deja lus."""
+    cache = _lire_cache()
+    out = {}
+    for a in adresses:
+        out.update((cache.get(a) or {}).get("chains") or {})
+    return out
 
 
 # ── prix / metriques : un appel DexScreener pour 30 mints ───────────
@@ -400,8 +475,7 @@ def scan(log=print, force: bool = False) -> dict:
     # TES adresses d'abord : le budget de lecture par passage est limite, et
     # ce sont les wallets FOMO/clans qui t'interessent, pas les wallets
     # trouves tout seuls par recurrence.
-    adresses = sorted((a for a in registre if not a.startswith("0x")),
-                      key=lambda a: registre[a].get("origin") != "suivi")
+    adresses = sorted(registre, key=lambda a: registre[a].get("origin") != "suivi")
     if not adresses:
         return {"coins": [], "solo": [], "wallets": 0, "at": time.time(),
                 "empty": True}
