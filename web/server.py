@@ -196,8 +196,39 @@ def create_app():
             veille = []
         counts["veille"] = len(veille)
 
+        # tes trendlines : on marque les coins deja listes, et on ajoute ceux
+        # que le scan ne connait pas — une ligne tracee a la main vaut d'etre
+        # vue meme si le coin n'est jamais remonte dans le classement
+        try:
+            from mmscanner import trendlines as tlmod, holdings as hmod
+            par_mint = {}
+            for l in tlmod.lignes():
+                par_mint.setdefault(l.get("mint"), []).append(l)
+            par_mint.pop(None, None)
+            tl_mints = sorted(par_mint)
+            deja = ({p.mint for p in ranked} | {c.get("mint") for c in extra}
+                    | {c.get("mint") for c in veille})
+            absents = [m for m in tl_mints if m not in deja]
+            infos = hmod._metriques(absents) if absents else {}
+            tl_extra = []
+            for m in absents:
+                x = infos.get(m) or {}
+                ls = par_mint[m]
+                tl_extra.append({
+                    "mint": m, "n": len(ls),
+                    "symbol": x.get("symbol") or ls[0].get("symbol") or "?",
+                    "chain": x.get("chain") or ls[0].get("chain") or "solana",
+                    "pair": x.get("pair") or ls[0].get("pair") or "",
+                    "mc": x.get("mc") or 0, "chg_h1": x.get("chg_h1") or 0,
+                })
+            tl_extra.sort(key=lambda c: -(c.get("mc") or 0))
+        except Exception:
+            tl_mints, tl_extra = [], []
+        counts["ligne"] = len(tl_mints)
+
         return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra,
                                       veille=veille, counts=counts,
+                                      tl_mints=tl_mints, tl_extra=tl_extra,
                                       chains=chains, chainmeta=config.CHAIN_META,
                                       meta=meta, active="radar",
                                       prog=meta.get("progress", {}),
@@ -1250,9 +1281,15 @@ function applyFilter(f){
       ch=it.getAttribute('data-chain')||'solana',
       w=parseInt(it.getAttribute('data-wallets')||'0',10),ok=true;
   if(curChain!=='all'&&ch!==curChain){it.hidden=true;return;}
-  var vl=it.getAttribute('data-veille')==='1';
-  if(f!=='veille'&&vl){it.hidden=true;return;}   // la veille a son propre onglet
+  var vl=it.getAttribute('data-veille')==='1',
+      lg=it.getAttribute('data-ligne')==='1',
+      tlo=it.getAttribute('data-tlonly')==='1';
+  if(f!=='veille'&&vl&&!(f==='ligne'&&lg)){it.hidden=true;return;}
+  // un coin present UNIQUEMENT parce qu'il porte une ligne ne s'affiche
+  // que sous son propre onglet : il n'a pas de note a comparer aux autres
+  if(f!=='ligne'&&tlo){it.hidden=true;return;}
   if(f==='veille')    ok = vl;
+  else if(f==='ligne')ok = lg;
   else if(f==='conv') ok = w>=2;
   else if(f==='top')  ok = (g==='A+'||g==='A'||g==='A-');
   else if(f==='wallet')ok = w>=1;
@@ -1263,6 +1300,19 @@ function applyFilter(f){
   it.hidden=!ok; if(ok)shown++;});
  var n=document.getElementById('nores'); if(n)n.hidden=shown>0;
  var r=document.getElementById('rows'); if(r)r.hidden=shown===0;}
+// les coins deja au classement qui portent une de tes lignes : on les marque
+// ici plutot que dans le gabarit, pour ne pas toucher au rendu des lignes
+(function(){try{
+ (window.TL_MINTS||[]).forEach(function(m){
+  document.querySelectorAll('#rows .item[data-mint="'+m+'"]').forEach(function(it){
+   if(it.getAttribute('data-tlonly')==='1')return;
+   it.setAttribute('data-ligne','1');
+   var n=it.querySelector('.id .n'); if(!n||n.querySelector('.tltag'))return;
+   var t=document.createElement('span');
+   t.className='tag tltag'; t.textContent='LIGNE';
+   t.style.color='#ff9f45'; t.style.borderColor='rgba(255,159,69,.45)';
+   n.appendChild(document.createTextNode(' ')); n.appendChild(t);});});
+}catch(_){}})();
 document.addEventListener('click',function(e){
  var b=e.target.closest('.chips .chip'); if(!b)return;
  document.querySelectorAll('.chips .chip').forEach(function(x){x.classList.remove('on');});
@@ -1354,8 +1404,10 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip" data-f="running">Running <i>{{ counts.running }}</i></button>
     <button class="chip" data-f="retest">Retest <i>{{ counts.retest }}</i></button>
     <button class="chip" data-f="compress">Compressing <i>{{ counts.compress }}</i></button>
+    <button class="chip" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
   </div>
+  <script>window.TL_MINTS={{ tl_mints|tojson }};</script>
 
   {% if pairs or extra or veille %}
   <div class="rows" id="rows">
@@ -1387,6 +1439,23 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
         <div class="id"><div class="n">{{ c.symbol or '?' }}</div>
           <div class="s">{{ 'sous surveillance' if not c.impulsion_at else 'impulsion repérée' }}
             · {{ c.source or 'veille' }}{% if c.liq %} · liq {{ c.liq|fmt }}{% endif %}</div></div>
+        <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
+          <div class="c num {{ 'up' if (c.chg_h1 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1 or 0) }}%</div></div>
+        <div class="acts">
+          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% for c in tl_extra %}
+    <div class="item" data-mint="{{ c.mint }}" data-grade="—" data-phase="—"
+         data-chain="{{ c.chain or 'solana' }}" data-wallets="0"
+         data-ligne="1" data-tlonly="1">
+      <div class="r" style="grid-template-columns:38px minmax(0,1fr) 96px auto">
+        <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:9px;letter-spacing:.1em">LIGNE</div>
+        <div class="id"><div class="n">{{ c.symbol }}</div>
+          <div class="s">{{ c.n }} trendline{{ 's' if c.n > 1 }} tracée{{ 's' if c.n > 1 }} · hors classement</div></div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           <div class="c num {{ 'up' if (c.chg_h1 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1 or 0) }}%</div></div>
         <div class="acts">
@@ -1551,6 +1620,7 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
 })();
 </script>
 </body></html>""")
+
 
 
 PAGE_ALERTES = (_H + "<title>MSCAN · Alertes</title>" + STYLE + "</head><body>"
