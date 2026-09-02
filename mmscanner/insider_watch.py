@@ -31,6 +31,16 @@ MAX_PAR_TOUR = 6
 # que ce qui ressemble a un setup jouable — le reste part quand meme sous
 # veille d'expansion, donc rien n'est perdu : l'alerte arrive plus tard, au
 # repli, quand il y a quelque chose a faire.
+# L'entree elle-meme n'alerte plus. Mesure faite sur 4 h : sept coins entres
+# par quatre a six adresses suivies etaient a -92 % le lendemain. Etre suivi
+# par des wallets qui entrent tot ne dit rien de la suite — eux entrent tot,
+# c'est leur metier, et ils se trompent souvent.
+#
+# Ces entrees alimentent donc la veille d'expansion, en silence. L'alerte
+# arrive plus tard, si le coin fait sa premiere impulsion PUIS son repli :
+# la, il y a une structure et une entree a prendre.
+ALERTE_ENTREE = False   # mettre a True pour retrouver l'alerte a l'entree
+
 MIN_ACHETEURS = 2       # deux adresses au moins, pas une
 MAX_CHG_H1 = 60.0       # au-dela l'entree est passee : on ne chase pas
 MAX_CHG_H24 = 300.0
@@ -169,6 +179,16 @@ def poll(log=print, amorcage: bool = False) -> int:
             vu[c["mint"]] = {"at": maintenant, "amorcage": True}
         _ecrire(vu)
         log(f"[insider] amorcage : {len(frais)} coin(s) enregistre(s) sans alerte")
+        return 0
+
+    if not ALERTE_ENTREE:
+        # on note ce qu'on a vu pour ne pas le retraiter, sans rien envoyer
+        for c in nouveaux:
+            vu[c["mint"]] = {"at": maintenant, "par": c["par"], "silencieux": True}
+        _ecrire(vu)
+        if nouveaux:
+            log(f"[insider] {len(nouveaux)} entree(s) mise(s) sous veille, "
+                f"sans alerte")
         return 0
 
     envoyes = 0

@@ -133,12 +133,34 @@ def armer(mint: str, chain: str = "", symbol: str = "",
 
 
 def armer_lot(coins: List[dict], source: str = "") -> int:
-    """coins : [{mint, chain, symbol, groupes}] — retourne le nombre d'ajouts."""
+    """
+    coins : [{mint, chain, symbol, groupes}] — retourne le nombre d'ajouts.
+
+    Une seule lecture et une seule ecriture du fichier : appele toutes les
+    60 s avec des dizaines d'entrees, un aller-retour disque par coin
+    devenait du bruit inutile.
+    """
+    d = _lire()
+    maintenant = time.time()
     n = 0
     for c in coins or []:
-        if armer(c.get("mint"), c.get("chain", ""), c.get("symbol", ""),
-                 c.get("groupes"), source):
-            n += 1
+        mint = c.get("mint")
+        if not mint:
+            continue
+        if mint in d:
+            e = d[mint]
+            if c.get("groupes"):
+                e["groupes"] = sorted(set((e.get("groupes") or [])
+                                          + list(c["groupes"])))
+            if c.get("symbol") and not e.get("symbol"):
+                e["symbol"] = c["symbol"]
+            continue
+        d[mint] = {"at": maintenant, "chain": c.get("chain", ""),
+                   "symbol": c.get("symbol", ""),
+                   "groupes": list(c.get("groupes") or []), "source": source}
+        n += 1
+    if coins:
+        _ecrire(d)
     return n
 
 
