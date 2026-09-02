@@ -364,12 +364,44 @@ def tracked_lines():
 BUYS_CACHE = config.path("followed_buys.json")
 
 
+FENETRE_ACHATS_H = 72.0
+
+
 def save_buys(data: dict) -> None:
-    """Ecrit le resultat du dernier scan d'adresses suivies."""
+    """
+    Ecrit le releve d'achats, en FUSIONNANT avec le precedent.
+
+    Meme principe que pour les avoirs : une chaine muette pendant un scan ne
+    doit pas effacer ce qu'elle avait rapporte au scan d'avant. En remplacant
+    le fichier, un incident passager sur Robinhood faisait disparaitre tous
+    ses coins du radar et de l'onglet Positions jusqu'au scan suivant.
+
+    Les entrees sortent d'elles-memes de la fenetre de 72 h.
+    """
     try:
         import json
+        anciens = {}
+        try:
+            with open(BUYS_CACHE, "r", encoding="utf-8") as f:
+                for c in (json.load(f) or {}).get("coins", []):
+                    if c.get("mint"):
+                        anciens[c["mint"]] = c
+        except Exception:
+            pass
+
+        for c in data.get("coins", []):
+            m = c.get("mint")
+            if not m:
+                continue
+            vieux = anciens.get(m)
+            # le releve le plus recent gagne, mais on ne perd jamais un coin
+            if not vieux or (c.get("ts") or 0) >= (vieux.get("ts") or 0):
+                anciens[m] = c
+
+        limite = time.time() - FENETRE_ACHATS_H * 3600
+        coins = [c for c in anciens.values() if (c.get("ts") or 0) >= limite]
         with open(BUYS_CACHE, "w", encoding="utf-8") as f:
-            json.dump({"at": time.time(), "coins": data.get("coins", [])}, f)
+            json.dump({"at": time.time(), "coins": coins}, f)
     except Exception:
         pass
 
