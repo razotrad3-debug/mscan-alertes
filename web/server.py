@@ -172,7 +172,6 @@ def create_app():
             "running": sum(1 for p in ranked if p.phase == "Running"),
             "early": sum(1 for p in ranked if p.phase == "Early"),
             "retest": sum(1 for p in ranked if p.phase == "Retest"),
-            "compress": sum(1 for p in ranked if p.phase == "Compressing"),
         }
         # coins sous veille d'expansion : reperes avant d'etre notes
         try:
@@ -1296,7 +1295,6 @@ function applyFilter(f){
   else if(f==='running')  ok = ph==='Running';
   else if(f==='early')    ok = ph==='Early';
   else if(f==='retest')   ok = ph==='Retest';
-  else if(f==='compress') ok = ph==='Compressing';
   it.hidden=!ok; if(ok)shown++;});
  var n=document.getElementById('nores'); if(n)n.hidden=shown>0;
  var r=document.getElementById('rows'); if(r)r.hidden=shown===0;}
@@ -1403,7 +1401,6 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip" data-f="early">Jeune <i>{{ counts.early }}</i></button>
     <button class="chip" data-f="running">Running <i>{{ counts.running }}</i></button>
     <button class="chip" data-f="retest">Retest <i>{{ counts.retest }}</i></button>
-    <button class="chip" data-f="compress">Compressing <i>{{ counts.compress }}</i></button>
     <button class="chip" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
   </div>
@@ -1455,7 +1452,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
       <div class="r" style="grid-template-columns:38px minmax(0,1fr) 96px auto">
         <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:9px;letter-spacing:.1em">LIGNE</div>
         <div class="id"><div class="n">{{ c.symbol }}</div>
-          <div class="s">{{ c.n }} trendline{{ 's' if c.n > 1 }} tracée{{ 's' if c.n > 1 }} · hors classement</div></div>
+          <div class="s">{{ c.n }} trendline{{ 's' if c.n > 1 }} tracée{{ 's' if c.n > 1 }}</div></div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           <div class="c num {{ 'up' if (c.chg_h1 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1 or 0) }}%</div></div>
         <div class="acts">
