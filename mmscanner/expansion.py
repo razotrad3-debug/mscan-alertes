@@ -70,6 +70,12 @@ IMPULSION_X = 1.45       # ou : le MC a pris 45 % sur sa base depuis l'armement
 RETRACE_MIN = 0.18       # repli minimum sous le haut pour parler d'entree
 RETRACE_MAX = 0.50       # au-dela, ce n'est plus un repli mais un abandon
 STAB_M5 = -6.0           # la chute doit se calmer : pas de couteau qui tombe
+# Un insider entre souvent sur un coin qui a DEJA fait son expansion et qui
+# redescend vers une zone d'achat. Sans ca on attendait une impulsion qu'on
+# ne verrait jamais, puisqu'elle etait passee avant l'armement. On la deduit
+# alors des variations : monte franchement sur 6 h, en train de redescendre.
+EXPANSION_H6 = 60.0      # le coin a pris ca sur 6 h : l'expansion a eu lieu
+RECUL_H1_MIN = 10.0      # et il rend du terrain depuis une heure
 MARGE_BASE = 1.12        # le repli doit rester au-dessus de la base de depart
 MIN_LIQ = 12_000.0
 MIN_VOL_M5 = 1_500.0     # dollars echanges sur la bougie du repli
@@ -332,7 +338,8 @@ def _message(e: dict, d: dict) -> str:
 
     lignes = [
         f"{pastille} *{titre}*{note} — REPLI APRES 1re EXPANSION",
-        f"{label} · impulsion il y a {depuis:.0f} min",
+        (f"{label} · expansion deja faite, repli en cours"
+         if e.get("deduite") else f"{label} · impulsion il y a {depuis:.0f} min"),
         "",
         f"- Market Cap : `{tg._usd(mc)}`  (haut : `{tg._usd(haut)}`)",
         f"- Repli : `-{repli:.0f}%` sous le haut",
@@ -413,16 +420,27 @@ def poll(log=print, envoyer: bool = None) -> int:
 
         # ── temps 1 : on cherche l'impulsion, sans rien envoyer
         if not e.get("impulsion_at"):
-            base = e.get("base_mc") or mc
-            e["base_mc"] = min(base, mc)          # la base, c'est le plus bas vu
-            impulsion = (x.get("chg_m5", 0) >= SEUIL_M5
-                         or mc >= e["base_mc"] * IMPULSION_X)
-            if impulsion:
+            h1, h6 = x.get("chg_h1", 0), x.get("chg_h6", 0)
+            # deja passee avant qu'on regarde : on la reconstitue a partir des
+            # variations, et le repli en cours devient jouable tout de suite
+            if h6 >= EXPANSION_H6 and h1 <= -RECUL_H1_MIN and h1 > -95:
                 e["impulsion_at"] = maintenant
-                e["haut_mc"] = mc
-                log(f"[expansion] {x.get('symbol')} : impulsion reperee "
-                    f"({tg._usd(e['base_mc'])} -> {tg._usd(mc)})")
-            continue
+                e["deduite"] = True
+                e["haut_mc"] = mc / (1 + h1 / 100.0)
+                e["base_mc"] = mc / (1 + h6 / 100.0)
+                log(f"[expansion] {x.get('symbol')} : expansion deja faite "
+                    f"(+{h6:.0f}% sur 6 h), repli en cours")
+                # pas de "continue" : le repli est peut-etre deja jouable
+            else:
+                base = e.get("base_mc") or mc
+                e["base_mc"] = min(base, mc)      # la base, c'est le plus bas vu
+                if (x.get("chg_m5", 0) >= SEUIL_M5
+                        or mc >= e["base_mc"] * IMPULSION_X):
+                    e["impulsion_at"] = maintenant
+                    e["haut_mc"] = mc
+                    log(f"[expansion] {x.get('symbol')} : impulsion reperee "
+                        f"({tg._usd(e['base_mc'])} -> {tg._usd(mc)})")
+                continue
 
         # ── temps 2 : l'impulsion est passee, on attend le repli
         e["haut_mc"] = max(e.get("haut_mc") or mc, mc)
