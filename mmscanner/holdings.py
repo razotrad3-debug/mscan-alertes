@@ -324,6 +324,17 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                 chaines = {}
                 if isinstance(mints, tuple):        # lecture EVM
                     mints, chaines = mints
+                # Une lecture vide n'est pas un fait, c'est presque toujours
+                # un blocage passager de l'explorateur. La croire revenait a
+                # ecrire "ce wallet ne detient rien" pour trois heures : onze
+                # adresses EVM etaient dans ce cas, et microduck a disparu du
+                # classement parce que ses porteurs en faisaient partie.
+                if not mints and (cache.get(a) or {}).get("n"):
+                    e = cache[a]
+                    e["ko"] = int(e.get("ko", 0)) + 1
+                    e["at"] = time.time() - (TTL_H * 3600 - 300)
+                    continue
+
                 lus += 1
                 plafond = MAX_MINTS_EVM if a.startswith("0x") else MAX_MINTS_WALLET
                 if "__spam__" in mints or len(mints) > plafond:
@@ -337,6 +348,10 @@ def portefeuilles(adresses: List[str], log=print, force: bool = False,
                                 "mints": mints}
                     if chaines:
                         cache[a]["chains"] = chaines
+                # ecriture au fil de l'eau : un arret en plein passage faisait
+                # perdre les quatre minutes de lecture deja faites
+                if (lus + spam) % 8 == 0:
+                    _ecrire_cache(cache)
         _DEADLINE = 0.0
         _ecrire_cache(cache)
         log(f"[holdings] {lus}/{len(perimes)} portefeuilles relus"
@@ -575,8 +590,16 @@ def scan(log=print, force: bool = False) -> dict:
     # decouverts par vagues, le cache retenant ce qui a deja ete resolu
     infos = _metriques(retenus)
     infos.update(_metriques(solitaires, fetch_max=MAX_PRESELECT_SOLO))
-    coins = _batir(retenus, par_mint, infos, registre, MIN_HOLDERS)
-    solos = _batir(solitaires, par_mint, infos, registre, 1)
+
+    # Un coin pouvait tomber entre les deux listes : trois porteurs bruts
+    # dont un seul au-dessus du seuil de poussiere n'entrait ni dans la
+    # convergence (qui en exige deux) ni dans les solitaires (qui exigent un
+    # seul porteur brut). microduck disparaissait pour cette raison. On batit
+    # donc une seule fois, puis on separe sur le nombre de porteurs REELS.
+    tous = _batir(retenus, par_mint, infos, registre, 1)
+    tous += _batir(solitaires, par_mint, infos, registre, 1)
+    coins = [c for c in tous if c["holders"] >= MIN_HOLDERS]
+    solos = [c for c in tous if c["holders"] < MIN_HOLDERS]
 
     coins.sort(key=lambda c: (c["holders"], c["value_usd"]), reverse=True)
     coins = _sans_pieges(coins[:MAX_COINS], log)
