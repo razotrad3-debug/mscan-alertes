@@ -316,13 +316,22 @@ def lignes() -> List[dict]:
 
 # ── message ────────────────────────────────────────────────────────
 def _val(v: float, unite: str) -> str:
-    """Un market cap se lit $160K ; un cours de memecoin a besoin de decimales."""
+    """
+    Un market cap se lit $160K ; un cours de memecoin a besoin de decimales.
+
+    Ici les deux chiffres affiches — le prix et la ligne — sont a moins de
+    1,5 % l'un de l'autre par construction. Arrondis comme ailleurs dans
+    l'app, ils tombaient sur le meme "$2K" et le message n'apprenait plus
+    rien. Sous 100 K on garde donc deux decimales.
+    """
     from mmscanner import telegram_alerts as tg
     if unite != "prix":
+        if 1_000 <= v < 100_000:
+            return f"${v/1000:.2f}K"
         return tg._usd(v)
     if v >= 1:
-        return f"${v:,.2f}"
-    return f"${v:.8f}".rstrip("0")
+        return f"${v:,.4f}"
+    return f"${v:.10f}".rstrip("0")
 
 
 def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
