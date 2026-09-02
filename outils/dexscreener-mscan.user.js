@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MSCAN — mes trendlines
 // @namespace    mscan
-// @version      1.1
+// @version      1.2
 // @description  Envoie a MSCAN les trendlines que tu traces sur DexScreener
 // @match        https://dexscreener.com/*
 // @match        https://www.dexscreener.com/*
@@ -115,7 +115,9 @@
     el.style.borderLeft = "2px solid " + (ok ? "#d4af37" : "#ff7a7a");
     el.style.opacity = "1";
     clearTimeout(el._t);
-    el._t = setTimeout(function () { el.style.opacity = "0"; }, 4000);
+    // 8 s, pas 4 : le premier essai a laisse croire que rien ne s'etait
+    // passe alors que les lignes etaient bien parties
+    el._t = setTimeout(function () { el.style.opacity = "0"; }, 8000);
   }
 
   // ── un tour ──────────────────────────────────────────────────────
