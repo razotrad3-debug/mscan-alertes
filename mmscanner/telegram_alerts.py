@@ -52,6 +52,17 @@ def _chat() -> str:
     return (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
 
 
+def chat_lignes() -> str:
+    """
+    Salon dedie aux alertes de traces (trendlines, Fib, POI).
+
+    Elles ne se lisent pas comme les autres : ce sont TES zones, pas des
+    coins que le scanner propose. Melangees au flux principal, elles se
+    noient. A defaut de salon dedie, elles repartent dans le salon commun.
+    """
+    return (os.getenv("TELEGRAM_CHAT_ID_LIGNES") or "").strip() or _chat()
+
+
 def enabled() -> bool:
     return bool(_token() and _chat())
 
@@ -115,14 +126,14 @@ def _garder_id(mid: int) -> None:
         pass
 
 
-def send(text: str, preview: bool = False) -> bool:
+def send(text: str, preview: bool = False, chat: str = None) -> bool:
     """Envoie un message Markdown. Retourne True si Telegram a accepte."""
     if not enabled():
         return False
     try:
         r = requests.post(
             API.format(token=_token(), method="sendMessage"),
-            json={"chat_id": _chat(), "text": text, "parse_mode": "Markdown",
+            json={"chat_id": chat or _chat(), "text": text, "parse_mode": "Markdown",
                   "disable_web_page_preview": not preview},
             timeout=15,
         )

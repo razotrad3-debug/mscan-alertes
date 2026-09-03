@@ -4,19 +4,25 @@ Genere l'icone de MSCAN : une loupe sur des chandeliers, or sur carre noir.
 Concu pour rester lisible en tres petit (barre des taches, 16-32 px) :
 traits epais, peu d'elements, fort contraste. Pas d'encadre.
 
-Usage :  python make_icon.py
-Sortie :  mscan.ico (multi-tailles) + mscan.png (256 px)
+Usage :  python make_icon.py            -> or, l'icone de l'application
+         python make_icon.py --orange   -> orange, pour le canal des lignes
+Sortie :  mscan.ico + mscan.png, ou mscan-lignes.png
 """
 import math
 from PIL import Image, ImageDraw
 
 GOLD = (212, 175, 55)
 GOLD_L = (245, 215, 120)
+# le meme dessin en orange : c'est la couleur de tout ce qui vient des traces
+# de l'utilisateur, dans l'app comme sur Telegram
+ORANGE = (255, 159, 69)
+ORANGE_L = (255, 190, 130)
 BLACK = (0, 0, 0)
 S = 1024  # rendu haute definition, reduit ensuite
 
 
-def draw() -> Image.Image:
+def draw(clair=None, fonce=None) -> Image.Image:
+    GOLD, GOLD_L = (fonce or globals()["GOLD"]), (clair or globals()["GOLD_L"])
     img = Image.new("RGB", (S, S), BLACK)
     d = ImageDraw.Draw(img, "RGBA")
 
@@ -45,9 +51,15 @@ def draw() -> Image.Image:
 
 
 if __name__ == "__main__":
-    img = draw()
-    tailles = [16, 24, 32, 48, 64, 128, 256]
-    versions = [img.resize((t, t), Image.LANCZOS) for t in tailles]
-    versions[-1].save("mscan.ico", format="ICO", sizes=[(t, t) for t in tailles])
-    versions[-1].save("mscan.png")
-    print("mscan.ico + mscan.png generes")
+    import sys
+    if "--orange" in sys.argv:
+        img = draw(clair=ORANGE_L, fonce=ORANGE)
+        img.resize((512, 512), Image.LANCZOS).save("mscan-lignes.png")
+        print("mscan-lignes.png genere (512 px, pour la photo du canal Telegram)")
+    else:
+        img = draw()
+        tailles = [16, 24, 32, 48, 64, 128, 256]
+        versions = [img.resize((t, t), Image.LANCZOS) for t in tailles]
+        versions[-1].save("mscan.ico", format="ICO", sizes=[(t, t) for t in tailles])
+        versions[-1].save("mscan.png")
+        print("mscan.ico + mscan.png generes")
