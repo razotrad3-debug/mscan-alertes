@@ -77,6 +77,18 @@ STAB_M5 = -6.0           # la chute doit se calmer : pas de couteau qui tombe
 # redescend vers une zone d'achat. Sans ca on attendait une impulsion qu'on
 # ne verrait jamais, puisqu'elle etait passee avant l'armement. On la deduit
 # alors des variations : monte franchement sur 6 h, en train de redescendre.
+# Note minimale pour qu'un repli ait le droit d'alerter.
+#
+# La veille arme TOUTES les paires du scan — c'est voulu, on veut voir venir.
+# Mais envoyer sur tout ce qui replie noie le Telegram : sur un scan de 170
+# paires, 124 sont C+ ou moins. Un C+ 6/12 qui replie n'est pas une entree,
+# c'est du bruit. On garde donc le meme systeme, avec un plancher.
+#
+# Les coins SANS note ne passent pas : une pool qui vient de naitre ou un
+# coin ou un insider vient d'entrer reste sous surveillance, mais n'alerte
+# qu'une fois que le scanner l'a note. On analyse d'abord, on propose ensuite.
+NOTE_MINI = "B+"
+
 EXPANSION_H6 = 60.0      # le coin a pris ca sur 6 h : l'expansion a eu lieu
 RECUL_H1_MIN = 10.0      # et il rend du terrain depuis une heure
 MARGE_BASE = 1.12        # le repli doit rester au-dessus de la base de depart
@@ -527,8 +539,13 @@ def poll(log=print, envoyer: bool = None) -> int:
                 log(f"[expansion] {x.get('symbol')} ecarte : autorites actives")
                 continue
 
+        # La zone d'entree est atteinte : on le note pour l'interface, meme
+        # si la note est trop faible pour qu'on envoie quoi que ce soit.
+        # Regarder une liste est un choix ; recevoir un message, non.
+        e["pret"] = maintenant
         if not envoyer:
-            e["pret"] = maintenant      # zone d'entree atteinte, sans envoi
+            continue
+        if config.grade_rank(e.get("grade") or "") < config.grade_rank(NOTE_MINI):
             continue
         if tg.send(_message(e, x)):
             envoyees += 1
