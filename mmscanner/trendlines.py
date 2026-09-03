@@ -480,6 +480,13 @@ def poll(log=print, envoyer: bool = None) -> int:
         cloud = (os.getenv("MSCAN_CLOUD_LIGNES") or "").strip().lower()             in ("1", "true", "oui", "yes")
         envoyer = tg.enabled() and (bool(os.getenv("MSCAN_HEADLESS")) or not cloud)
 
+    # Quand ce n'est pas a nous d'envoyer, on ne touche a RIEN. L'armement et
+    # le cooldown vivent dans le fichier qu'on publie : les modifier ici
+    # revenait a dire au cloud "c'est deja sonne" alors que personne n'avait
+    # rien envoye. Une course perdue = une alerte perdue, en silence.
+    if not envoyer:
+        return 0
+
     d = _lire()
     if not d:
         return 0
@@ -571,6 +578,13 @@ def boucle(log=print, cadence: float = 60.0) -> None:
 DEPOT = "razotrad3-debug/mscan-alertes"
 FICHIER_ENC = "trendlines.enc"
 URL_ENC = f"https://raw.githubusercontent.com/{DEPOT}/main/{FICHIER_ENC}"
+# raw.githubusercontent passe par un CDN qui sert une copie perimee pendant
+# plusieurs minutes — et qui ignore les parametres anti-cache. L'API contents,
+# elle, rend toujours l'etat reel du depot. On la prend en premier, avec le
+# jeton du runner quand il existe, et on garde raw comme filet.
+API_ENC = f"https://api.github.com/repos/{DEPOT}/contents/{FICHIER_ENC}"
+DELAI_RAPAT_S = 110.0        # 33 appels/heure : sous la limite anonyme de 60
+_RAPAT = {"at": 0.0}
 DELAI_PUBLI_S = 30.0
 _PUBLI = {"at": 0.0, "empreinte": ""}
 
@@ -667,14 +681,36 @@ def rapatrier(log=print) -> int:
     boite = _boite()
     if boite is None:
         return 0
+    if time.time() - _RAPAT["at"] < DELAI_RAPAT_S:
+        return len(_lire())
+    _RAPAT["at"] = time.time()
+
+    brut = None
+    entetes = {"Accept": "application/vnd.github.raw"}
+    jeton = (os.getenv("GITHUB_TOKEN") or "").strip()
+    if jeton:
+        entetes["Authorization"] = "Bearer " + jeton
     try:
-        r = _SESSION.get(URL_ENC, timeout=25)
+        r = _SESSION.get(API_ENC, headers=entetes, timeout=25)
         if r.status_code == 404:
             return 0
         r.raise_for_status()
-        distant = json.loads(boite.decrypt(r.content).decode())
+        brut = r.content
     except Exception as e:
-        log(f"[trendlines] rapatriement : {e}")
+        log(f"[trendlines] API indisponible ({e}) — repli sur raw")
+        try:
+            r = _SESSION.get(URL_ENC, timeout=25)
+            if r.status_code == 404:
+                return 0
+            r.raise_for_status()
+            brut = r.content
+        except Exception as e2:
+            log(f"[trendlines] rapatriement : {e2}")
+            return 0
+    try:
+        distant = json.loads(boite.decrypt(brut).decode())
+    except Exception as e:
+        log(f"[trendlines] dechiffrement : {e}")
         return 0
     if not isinstance(distant, dict):
         return 0

@@ -64,6 +64,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
           MSCAN_LIGNES_KEY:   ${{ secrets.MSCAN_LIGNES_KEY }}
+          GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
           SCAN_INTERVAL_SEC:  "600"
         run: python bot_server.py --minutes 340
 
