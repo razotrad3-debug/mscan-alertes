@@ -296,6 +296,25 @@ def enregistrer(charge: dict) -> dict:
             "niveaux": [round(niveau(x) or 0) for x in gardees.values()]}
 
 
+def oublier(mint: str) -> int:
+    """
+    Retire toutes les lignes d'un coin. Retourne combien sont parties.
+
+    Le navigateur reste la source : si les traces existent toujours sur
+    DexScreener, elles reviendront au prochain passage sur la paire. C'est
+    voulu — on efface une surveillance, pas un dessin.
+    """
+    if not mint:
+        return 0
+    d = _lire()
+    partantes = [k for k, l in d.items() if l.get("mint") == mint]
+    for k in partantes:
+        d.pop(k, None)
+    if partantes:
+        _ecrire(d)
+    return len(partantes)
+
+
 # ── geometrie ──────────────────────────────────────────────────────
 def bornes(l: dict) -> Optional[tuple]:
     """Zone Fibonacci convertie, ou None si la ligne n'en est pas une."""

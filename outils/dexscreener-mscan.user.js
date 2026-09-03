@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MSCAN — mes trendlines
 // @namespace    mscan
-// @version      1.2
+// @version      1.3
 // @description  Envoie a MSCAN les trendlines que tu traces sur DexScreener
 // @match        https://dexscreener.com/*
 // @match        https://www.dexscreener.com/*
@@ -30,6 +30,8 @@
   var derniere = ""; // derniere signature envoyee
   var stable = null; // signature vue au tour precedent
   var vuNonVide = {}; // paires ou l'on a deja vu des traces
+  var videDepuis = {}; // tours consecutifs ou une paire est apparue vide
+  var TOURS_AVANT_VIDE = 10; // 20 s : le chart met ~8 s a reposer ses traces
 
   // ── transport ────────────────────────────────────────────────────
   // GM_xmlhttpRequest passe par l'extension : ni CORS ni blocage
@@ -129,10 +131,18 @@
     var lignes = lireLignes();
     if (lignes === null) return; // chart pas pret
 
-    if (lignes.length) vuNonVide[pair] = true;
-    // ne jamais effacer ce que MSCAN garde tant qu'on n'a pas vu de traces
-    // sur cette paire : au chargement, le chart est vide une seconde
-    else if (!vuNonVide[pair]) return;
+    if (lignes.length) {
+      vuNonVide[pair] = true;
+      videDepuis[pair] = 0;
+    } else {
+      videDepuis[pair] = (videDepuis[pair] || 0) + 1;
+      // Au chargement, le chart est vide quelques secondes avant de reposer
+      // ses traces : envoyer tout de suite effacerait ce que MSCAN garde.
+      // Mais si la paire reste vide vingt secondes durant, c'est que tu as
+      // vraiment tout supprime — et il faut que ca suive, meme apres un
+      // rechargement ou l'on n'a rien vu de non vide.
+      if (!vuNonVide[pair] && videDepuis[pair] < TOURS_AVANT_VIDE) return;
+    }
 
     var sig = chain + "/" + pair + "|" + JSON.stringify(lignes);
     if (sig === derniere) return;

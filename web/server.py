@@ -245,7 +245,10 @@ def create_app():
                     base.update(symbol=x.get("symbol") or ls[0].get("symbol") or "?",
                                 chain=x.get("chain") or ls[0].get("chain") or "solana",
                                 pair=x.get("pair") or ls[0].get("pair") or "",
-                                mc=x.get("mc") or 0, chg_h1=x.get("chg_h1") or 0)
+                                # mc et chg restent None si on ne les a pas :
+                                # au demarrage le cache de prix est froid, et un
+                                # zero affiche se lirait comme un coin mort
+                                mc=x.get("mc"), chg_h1=x.get("chg_h1"))
                 tl_rows.append(base)
             tl_rows.sort(key=lambda c: (config.grade_rank(c["grade"]) if c["grade"] else -1,
                                         c.get("mc") or 0), reverse=True)
@@ -561,6 +564,16 @@ def create_app():
         # GET sert aussi de signature : c'est ainsi que le script trouve le
         # bon port, l'app ne tournant pas toujours sur le meme
         return _ouvrir(jsonify({"app": "mscan", "lignes": trendlines.lignes()}))
+
+    @app.route("/api/trendlines/oublier", methods=["POST"])
+    def api_trendlines_oublier():
+        """Retire un coin de la surveillance. Appelee depuis l'app seulement."""
+        from mmscanner import trendlines
+        mint = (request.get_json(force=True, silent=True) or {}).get("mint") or ""
+        n = trendlines.oublier(mint)
+        if n:
+            threading.Thread(target=trendlines.publier, daemon=True).start()
+        return jsonify({"ok": bool(n), "retirees": n})
 
     # surveillance des lignes : cadence propre, bien plus rapide que le scan
     def _veille_lignes():
@@ -1348,6 +1361,29 @@ function applyFilter(f){
    t.style.color='#ff9f45'; t.style.borderColor='rgba(255,159,69,.45)';
    n.appendChild(document.createTextNode(' ')); n.appendChild(t);});});
 }catch(_){}})();
+// retirer un coin de la surveillance depuis la liste Trendline
+document.addEventListener('click',async function(e){
+ var b=e.target.closest('.tloub'); if(!b)return;
+ e.preventDefault(); e.stopPropagation();
+ var sym=b.getAttribute('data-sym')||'ce coin';
+ if(!confirm('Ne plus surveiller les lignes de '+sym+' ?
+
+'
+   +"Si les traces existent encore sur DexScreener, elles reviendront la"
+   +" prochaine fois que tu ouvriras la paire."))return;
+ b.disabled=true;
+ try{
+  var r=await fetch('/api/trendlines/oublier',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mint:b.getAttribute('data-mint')})});
+  var d=await r.json();
+  if(d&&d.ok){
+   var it=b.closest('.item'); if(it)it.remove();
+   var c=document.querySelector('.chips .chip[data-f="ligne"] i');
+   if(c)c.textContent=Math.max(0,parseInt(c.textContent||'0',10)-1);
+  }else{b.disabled=false;}
+ }catch(_){b.disabled=false;}
+});
 document.addEventListener('click',function(e){
  var b=e.target.closest('.chips .chip'); if(!b)return;
  document.querySelectorAll('.chips .chip').forEach(function(x){x.classList.remove('on');});
@@ -1493,10 +1529,11 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
           <div class="s">{% if c.nt %}{{ c.nt }} trendline{{ 's' if c.nt > 1 }} tracée{{ 's' if c.nt > 1 }}{% endif %}{% if c.nt and c.nf %} · {% endif %}{% if c.nf %}{{ c.nf }} fib tracée{{ 's' if c.nf > 1 }}{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
         </div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
-          <div class="c num {{ 'up' if (c.chg_h1 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1 or 0) }}%</div></div>
+          {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
         <div class="acts">
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
           <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
+          <button class="ic tloub" title="Ne plus surveiller ce coin" data-mint="{{ c.mint }}" data-sym="{{ c.symbol }}">&#10005;</button>
         </div>
       </div>
     </div>
