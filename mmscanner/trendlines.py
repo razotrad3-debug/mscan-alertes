@@ -64,6 +64,11 @@ OUTILS = {
     "LineToolTrendLine", "LineToolRay", "LineToolExtended",
     "LineToolHorzLine", "LineToolHorzRay",
     "LineToolFibRetracement",
+    # le rectangle : une zone d'interet dessinee a la main (POI, orderblock).
+    # Deux coins opposes, donc deux prix : c'est deja une zone, on la prend
+    # telle quelle. Sa largeur dans le temps ne compte pas — un POI se lit
+    # comme un niveau, il ne s'eteint pas au bord droit du rectangle.
+    "LineToolRectangle",
 }
 
 # Le golden pocket du cours. Ce ne sont pas deux traits mais UNE zone : a
@@ -252,12 +257,19 @@ def enregistrer(charge: dict) -> dict:
         # Fibonacci : les deux ancres decrivent le mouvement, pas un trait.
         # On en tire la zone 0,618-0,65, qui ne bouge pas avec le temps.
         zb = zh = None
-        if outil == "LineToolFibRetracement":
+        genre = ""
+        if outil == "LineToolRectangle":
+            if len(pts) < 2:
+                continue
+            zb, zh = sorted((pts[0][1], pts[1][1]))
+            genre = "poi"
+        elif outil == "LineToolFibRetracement":
             if len(pts) < 2:
                 continue
             (_, va), (_, vb) = pts[0], pts[1]
             niv = [vb + r * (va - vb) for r in FIB_RATIOS]
             zb, zh = min(niv), max(niv)
+            genre = "fib"
 
         cle = _cle(infos["chain"], pair, pts)
         vieille = anciennes.get(cle) or {}
@@ -267,7 +279,7 @@ def enregistrer(charge: dict) -> dict:
             "t1": pts[0][0], "v1": zb if zb is not None else pts[0][1],
             "t2": None if zb is not None else (pts[1][0] if len(pts) == 2 else None),
             "v2": None if zb is not None else (pts[1][1] if len(pts) == 2 else None),
-            "zb": zb, "zh": zh,
+            "zb": zb, "zh": zh, "zone": genre,
             "facteur": facteur, "unite": unite,
             "cree": vieille.get("cree") or maintenant,
             "vu": maintenant,
@@ -430,14 +442,16 @@ def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
     z = bornes(l)
     corps = [
         f"🟠 *{titre}*",
-        f"{label} · " + ("Fib 0.618-0.65 touch" if z else "Trendline touch"),
+        f"{label} · " + ("POI touch" if l.get("zone") == "poi"
+                         else ("Fib 0.618-0.65 touch" if z else "Trendline touch")),
         "",
         f"- {sens}",
         f"- {quoi} : `{_val(val, unite)}`",
     ]
     if z:
         corps.append(f"- Zone : `{_val(z[0], unite)}` - `{_val(z[1], unite)}`")
-    corps += ["", "Le prix revient dans ta zone Fib." if z
+    corps += ["", ("Le prix revient dans ta zone POI." if l.get("zone") == "poi"
+                   else "Le prix revient dans ta zone Fib.") if z
                   else "Le prix revient sur la ligne que tu as tracee."]
     cible = x.get("pair") or l.get("pair") or l.get("mint")
     corps += ["", f"[DexScreener]({dex_link(chain, cible)})"

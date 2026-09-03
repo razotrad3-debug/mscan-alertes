@@ -217,8 +217,10 @@ def create_app():
             tl_rows = []
             for m in tl_mints:
                 ls = par_mint[m]
-                nf = sum(1 for l in ls if l.get("zb") is not None)
-                base = {"mint": m, "n": len(ls), "nf": nf, "nt": len(ls) - nf,
+                nf = sum(1 for l in ls if l.get("zone") == "fib")
+                npo = sum(1 for l in ls if l.get("zone") == "poi")
+                base = {"mint": m, "n": len(ls), "nf": nf, "npo": npo,
+                        "nt": len(ls) - nf - npo,
                         "grade": "", "score": 0,
                         "max_score": 12, "phase": "", "wallets": 0, "groups": ""}
                 if m in notes:
@@ -1522,7 +1524,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
         <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:8px;letter-spacing:.06em">TRENDLINE</div>
         <div class="id">
           <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }} {{ c.score }}/{{ c.max_score }}</span>{% endif %}</div>
-          <div class="s">{% if c.nt %}{{ c.nt }} trendline{{ 's' if c.nt > 1 }} tracée{{ 's' if c.nt > 1 }}{% endif %}{% if c.nt and c.nf %} · {% endif %}{% if c.nf %}{{ c.nf }} fib tracée{{ 's' if c.nf > 1 }}{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
+          <div class="s">{% if c.nt %}{{ c.nt }} trendline{{ 's' if c.nt > 1 }} tracée{{ 's' if c.nt > 1 }}{% endif %}{% if c.nt and c.nf %} · {% endif %}{% if c.nf %}{{ c.nf }} fib tracée{{ 's' if c.nf > 1 }}{% endif %}{% if (c.nt or c.nf) and c.npo %} · {% endif %}{% if c.npo %}{{ c.npo }} POI{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
         </div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
@@ -1608,8 +1610,8 @@ PAGE_WALLETS = (_H + "<title>MSCAN · Wallets</title>" + STYLE + "</head><body>"
 PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body>"
                  + MACROS + CHROME + r"""
 <div class="page">
-  <div class="sechead"><h1>Ce qu'ils tiennent</h1>
-    <span class="sub">{{ coins|length }} coins · {{ nwallets }} portefeuilles lus{% if updated %} · relevé {{ updated|ago }}{% endif %}</span></div>
+  <div class="sechead">
+    <span class="sub" style="margin-left:0">{{ coins|length }} coins · {{ nwallets }} portefeuilles lus{% if updated %} · relevé {{ updated|ago }}{% endif %}</span></div>
 
   <div class="chips">
     <a class="chip {{ 'on' if tri=='convergence' }}" href="/holdings">Convergence</a>
