@@ -217,7 +217,9 @@ def create_app():
             tl_rows = []
             for m in tl_mints:
                 ls = par_mint[m]
-                base = {"mint": m, "n": len(ls), "grade": "", "score": 0,
+                nf = sum(1 for l in ls if l.get("zb") is not None)
+                base = {"mint": m, "n": len(ls), "nf": nf, "nt": len(ls) - nf,
+                        "grade": "", "score": 0,
                         "max_score": 12, "phase": "", "wallets": 0, "groups": ""}
                 if m in notes:
                     q = notes[m]
@@ -1484,7 +1486,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
         <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:8px;letter-spacing:.06em">TRENDLINE</div>
         <div class="id">
           <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }} {{ c.score }}/{{ c.max_score }}</span>{% endif %}</div>
-          <div class="s">{{ c.n }} trendline{{ 's' if c.n > 1 }} tracée{{ 's' if c.n > 1 }}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
+          <div class="s">{% if c.nt %}{{ c.nt }} trendline{{ 's' if c.nt > 1 }} tracée{{ 's' if c.nt > 1 }}{% endif %}{% if c.nt and c.nf %} · {% endif %}{% if c.nf %}{{ c.nf }} fib tracée{{ 's' if c.nf > 1 }}{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
         </div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           <div class="c num {{ 'up' if (c.chg_h1 or 0) >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1 or 0) }}%</div></div>
