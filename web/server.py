@@ -952,6 +952,10 @@ details[open]>summary .wchev{transform:rotate(180deg)}
 .chips .chip.on{background:rgba(212,175,55,.12);border-color:var(--gold);color:var(--gold-2)}
 .chips .chip.on i{color:var(--gold)}
 .chips .chip.gold{border-color:rgba(212,175,55,.3);color:var(--gold-2)}
+.chips .chip.tl{border-color:rgba(255,159,69,.35);color:#ff9f45}
+.chips .chip.tl i{color:rgba(255,159,69,.65)}
+.chips .chip.tl.on{background:rgba(255,159,69,.16);border-color:#ff9f45;color:#ffb877}
+.chips .chip.tl.on i{color:#ff9f45}
 .chips .chip.gold.on{background:rgba(212,175,55,.16)}
 .nores{text-align:center;padding:44px;color:var(--fg-3);font-size:12.5px;
  border:1px solid var(--hair);border-radius:var(--r);background:var(--surface)}
@@ -1429,7 +1433,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
   <div class="chips">
     <button class="chip on" data-f="tous">Tous <i>{{ counts.tous }}</i></button>
     <button class="chip gold" data-f="top">A+ / A / A- <i>{{ counts.top }}</i></button>
-    <button class="chip gold" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
+    <button class="chip tl" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
     <button class="chip" data-f="conv">Convergence <i>{{ counts.conv }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
     <button class="chip" data-f="early">Jeune <i>{{ counts.early }}</i></button>
