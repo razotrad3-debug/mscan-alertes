@@ -1366,11 +1366,7 @@ document.addEventListener('click',async function(e){
  var b=e.target.closest('.tloub'); if(!b)return;
  e.preventDefault(); e.stopPropagation();
  var sym=b.getAttribute('data-sym')||'ce coin';
- if(!confirm('Ne plus surveiller les lignes de '+sym+' ?
-
-'
-   +"Si les traces existent encore sur DexScreener, elles reviendront la"
-   +" prochaine fois que tu ouvriras la paire."))return;
+ if(!confirm('Ne plus surveiller les lignes de '+sym+' ? Si les traces' +' existent encore sur DexScreener, elles reviendront la prochaine fois' +" que tu ouvriras la paire."))return;
  b.disabled=true;
  try{
   var r=await fetch('/api/trendlines/oublier',{method:'POST',
