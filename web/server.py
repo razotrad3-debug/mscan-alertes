@@ -1429,12 +1429,12 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
   <div class="chips">
     <button class="chip on" data-f="tous">Tous <i>{{ counts.tous }}</i></button>
     <button class="chip gold" data-f="top">A+ / A / A- <i>{{ counts.top }}</i></button>
+    <button class="chip gold" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
     <button class="chip" data-f="conv">Convergence <i>{{ counts.conv }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
     <button class="chip" data-f="early">Jeune <i>{{ counts.early }}</i></button>
     <button class="chip" data-f="running">Running <i>{{ counts.running }}</i></button>
     <button class="chip" data-f="retest">Retest <i>{{ counts.retest }}</i></button>
-    <button class="chip" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
   </div>
   <script>window.TL_MINTS={{ tl_mints|tojson }};</script>
