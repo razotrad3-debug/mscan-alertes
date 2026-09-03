@@ -15,8 +15,8 @@ GOLD = (212, 175, 55)
 GOLD_L = (245, 215, 120)
 # le meme dessin en orange : c'est la couleur de tout ce qui vient des traces
 # de l'utilisateur, dans l'app comme sur Telegram
-ORANGE = (255, 159, 69)
-ORANGE_L = (255, 190, 130)
+ORANGE = (214, 62, 12)      # les bougies : orange brule, tres proche du rouge
+ORANGE_L = (255, 94, 20)     # la loupe : le meme, plus vif, pour ressortir
 BLACK = (0, 0, 0)
 S = 1024  # rendu haute definition, reduit ensuite
 
