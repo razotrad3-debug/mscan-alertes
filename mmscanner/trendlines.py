@@ -355,6 +355,22 @@ def ecart(l: dict, valeur: float) -> Optional[float]:
     return (valeur / n - 1.0) if n and n > 0 else None
 
 
+def _segment(l: dict) -> bool:
+    """
+    Cette ligne s'arrete-t-elle la ou elle a ete tracee ?
+
+    Une trendline est un SEGMENT : elle vaut entre ses deux ancres et nulle
+    part ailleurs. La prolonger revenait a alerter sur un trait que
+    l'utilisateur n'a jamais dessine — il trace court, on lui repondait long.
+
+    Une demi-droite et une droite prolongee, elles, se prolongent par
+    definition : c'est toute la difference entre ces outils, et on la
+    respecte plutot que de la gommer.
+    """
+    return (l.get("outil") or "") == "LineToolTrendLine" and bool(
+        l.get("t2")) and l.get("t2") != l.get("t1")
+
+
 def niveau(l: dict, t: float = None) -> Optional[float]:
     """Market cap ou passe la ligne a l'instant t. C'est tout le calcul."""
     z = bornes(l)
@@ -367,6 +383,9 @@ def niveau(l: dict, t: float = None) -> Optional[float]:
     if not t2 or t2 == t1 or not v2:
         v = v1                                    # niveau horizontal
     else:
+        # hors du trace : il n'y a pas de ligne, donc pas de niveau
+        if _segment(l) and not (min(t1, t2) <= t <= max(t1, t2)):
+            return None
         v = v1 + (v2 - v1) * (t - t1) / (t2 - t1)
     return v * (l.get("facteur") or 0) if v > 0 else None
 
@@ -375,6 +394,9 @@ def _fin(l: dict) -> float:
     cree = l.get("cree") or 0
     plafond = cree + VALIDITE_MAX_J * 86400
     t1, t2 = l.get("t1"), l.get("t2")
+    # une trendline meurt au bout de son trace, ni avant ni apres
+    if _segment(l):
+        return max(t1, t2)
     if not t2 or t2 == t1:
         return plafond                            # un niveau ne perime pas vite
     portee = abs(t2 - t1)
