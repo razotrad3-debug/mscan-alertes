@@ -967,6 +967,13 @@ details[open]>summary .wchev{transform:rotate(180deg)}
 .chips .chip.on{background:rgba(212,175,55,.12);border-color:var(--gold);color:var(--gold-2)}
 .chips .chip.on i{color:var(--gold)}
 .chips .chip.gold{border-color:rgba(212,175,55,.3);color:var(--gold-2)}
+/* ouvrir tous les charts d'un coup : dore, et plus grand que les icones
+   de ligne — c'est une action sur la page entiere, pas sur un coin */
+.toutdex{margin-left:auto;width:32px;height:26px;border:1px solid var(--gold);
+ background:var(--gold-dim);border-radius:var(--r)}
+.toutdex .dexlogo{width:17px;height:17px;opacity:1}
+.toutdex:hover{background:rgba(212,175,55,.28)}
+.toutdex:disabled{opacity:.4;cursor:default}
 .chips .chip.tl{border-color:rgba(255,159,69,.35);color:#ff9f45}
 .chips .chip.tl i{color:rgba(255,159,69,.65)}
 .chips .chip.tl.on{background:rgba(255,159,69,.16);border-color:#ff9f45;color:#ffb877}
@@ -1611,7 +1618,8 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
                  + MACROS + CHROME + r"""
 <div class="page">
   <div class="sechead">
-    <span class="sub" style="margin-left:0">{{ coins|length }} coins · {{ nwallets }} portefeuilles lus{% if updated %} · relevé {{ updated|ago }}{% endif %}</span></div>
+    <span class="sub" style="margin-left:0">{{ coins|length }} coins · {{ nwallets }} portefeuilles lus{% if updated %} · relevé {{ updated|ago }}{% endif %}</span>
+    <button class="ic toutdex" id="toutdex" title="Ouvrir tous les charts DexScreener">{{ icon('trend') }}</button></div>
 
   <div class="chips">
     <a class="chip {{ 'on' if tri=='convergence' }}" href="/holdings">Convergence</a>
@@ -1688,6 +1696,23 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
   Object.keys(vus).forEach(function(k){if(vus[k]<vieux)delete vus[k];});
   try{localStorage.setItem('mscan_vus',JSON.stringify(vus));}catch(_){}
   nettoyer();});
+})();
+
+// ── ouvrir tous les charts de la page ──────────────────────────────
+(function(){
+ var b=document.getElementById('toutdex'); if(!b)return;
+ b.addEventListener('click',function(){
+  var liens=[].slice.call(document.querySelectorAll('.rows a[title="DexScreener"]'))
+    .filter(function(a){var it=a.closest('.item');return !it||!it.hidden;});
+  if(!liens.length){alert('Aucun chart a ouvrir.');return;}
+  if(!confirm('Ouvrir les '+liens.length+' charts DexScreener ? Ils partiront'
+    +' dans '+liens.length+' onglets. Autorise les fenetres surgissantes si'
+    +' le navigateur les bloque.'))return;
+  b.disabled=true;
+  // toutes dans le meme geste : un window.open differe se fait bloquer
+  liens.forEach(function(a){try{window.open(a.href,'_blank','noopener');}catch(e){}});
+  setTimeout(function(){b.disabled=false;},1500);
+ });
 })();
 </script>
 </body></html>""")
