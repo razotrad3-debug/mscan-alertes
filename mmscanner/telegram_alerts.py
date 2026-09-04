@@ -102,6 +102,33 @@ def _save(d: dict) -> None:
         pass
 
 
+def deja_alerte(mint: str, heures: float = None) -> bool:
+    """
+    Ce coin est-il deja parti recemment, PAR N'IMPORTE QUEL CHEMIN ?
+
+    Le scan et la veille de repli avaient chacun leur memoire : le meme coin
+    pouvait donc partir deux fois a deux minutes d'intervalle, une fois en
+    "Phase Running" et une fois en "Phase Pullback". Les deux consultent
+    desormais ce registre.
+    """
+    if not mint:
+        return False
+    v = _load().get(mint)
+    fenetre = time.time() - (heures or ALERT_COOLDOWN_H) * 3600
+    return isinstance(v, dict) and v.get("at", 0) > fenetre
+
+
+def marquer_envoye(mint: str, symbol: str = "", grade: str = "") -> None:
+    """Inscrit un envoi dans le registre commun."""
+    if not mint:
+        return
+    d = _load()
+    d[mint] = {"at": time.time(),
+               "jour": time.strftime("%Y-%m-%d"),
+               "grade": grade, "symbol": symbol}
+    _save(d)
+
+
 SENT_IDS_FILE = config.path("telegram_msgids.json")
 MAX_IDS = 400          # au-dela on oublie les plus anciens : ils sont de toute
                        # facon trop vieux pour etre supprimables (limite 48 h)

@@ -76,6 +76,9 @@ OUTILS = {
 # mouvement, et sur un gros mouvement un seul niveau median raterait les
 # bords. On garde donc les deux bornes et on surveille l'intervalle.
 FIB_RATIOS = (0.618, 0.65)
+# Le 0,786 du cours : le dernier niveau avant l'invalidation. Ce n'est pas
+# une zone mais un trait, on lui laisse la tolerance ordinaire.
+FIB_786 = 0.786
 
 
 # ── etat sur disque ────────────────────────────────────────────────
@@ -116,7 +119,7 @@ def _epoch(v) -> Optional[float]:
         return None
 
 
-def _cle(chain: str, pair: str, ancres: List[tuple]) -> str:
+def _cle(chain: str, pair: str, ancres: List[tuple], suffixe: str = "") -> str:
     """
     Identite d'une ligne : ses ancres brutes, telles que tracees.
 
@@ -128,6 +131,8 @@ def _cle(chain: str, pair: str, ancres: List[tuple]) -> str:
     attendu.
     """
     brut = f"{chain}:{pair}:" + "|".join(f"{t:.0f}/{v:.10g}" for t, v in ancres)
+    if suffixe:
+        brut += ":" + suffixe
     return hashlib.sha1(brut.encode()).hexdigest()[:12]
 
 
@@ -256,36 +261,45 @@ def enregistrer(charge: dict) -> dict:
 
         # Fibonacci : les deux ancres decrivent le mouvement, pas un trait.
         # On en tire la zone 0,618-0,65, qui ne bouge pas avec le temps.
-        zb = zh = None
-        genre = ""
+        # Une meme trace peut donner plusieurs choses a surveiller : un
+        # Fibonacci en donne deux, le golden pocket et le 0,786.
+        # Chaque entree est (suffixe de cle, bas, haut, genre).
+        parts = []
         if outil == "LineToolRectangle":
             if len(pts) < 2:
                 continue
-            zb, zh = sorted((pts[0][1], pts[1][1]))
-            genre = "poi"
+            b, h = sorted((pts[0][1], pts[1][1]))
+            parts.append(("", b, h, "poi"))
         elif outil == "LineToolFibRetracement":
             if len(pts) < 2:
                 continue
             (_, va), (_, vb) = pts[0], pts[1]
             niv = [vb + r * (va - vb) for r in FIB_RATIOS]
-            zb, zh = min(niv), max(niv)
-            genre = "fib"
+            parts.append(("gp", min(niv), max(niv), "fib"))
+            n786 = vb + FIB_786 * (va - vb)
+            parts.append(("786", n786, n786, "fib786"))
+        else:
+            parts.append(("", None, None, ""))
 
-        cle = _cle(infos["chain"], pair, pts)
-        vieille = anciennes.get(cle) or {}
-        gardees[cle] = {
-            "chain": infos["chain"], "pair": pair, "mint": infos["mint"],
-            "symbol": infos["symbol"], "outil": outil,
-            "t1": pts[0][0], "v1": zb if zb is not None else pts[0][1],
-            "t2": None if zb is not None else (pts[1][0] if len(pts) == 2 else None),
-            "v2": None if zb is not None else (pts[1][1] if len(pts) == 2 else None),
-            "zb": zb, "zh": zh, "zone": genre,
-            "facteur": facteur, "unite": unite,
-            "cree": vieille.get("cree") or maintenant,
-            "vu": maintenant,
-            "arme": vieille.get("arme", True),
-            "dernier_signal": vieille.get("dernier_signal") or 0,
-        }
+        for suffixe, zb, zh, genre in parts:
+            cle = _cle(infos["chain"], pair, pts, suffixe)
+            vieille = anciennes.get(cle) or {}
+            gardees[cle] = {
+                "chain": infos["chain"], "pair": pair, "mint": infos["mint"],
+                "symbol": infos["symbol"], "outil": outil,
+                "t1": pts[0][0], "v1": zb if zb is not None else pts[0][1],
+                "t2": None if zb is not None else (pts[1][0] if len(pts) == 2 else None),
+                "v2": None if zb is not None else (pts[1][1] if len(pts) == 2 else None),
+                "zb": zb, "zh": zh, "zone": genre,
+                # une zone ne sonne qu'une fois : le prix qui la traverse,
+                # ressort et revient ne raconte pas une nouvelle histoire
+                "unique": bool(genre),
+                "facteur": facteur, "unite": unite,
+                "cree": vieille.get("cree") or maintenant,
+                "vu": maintenant,
+                "arme": vieille.get("arme", True),
+                "dernier_signal": vieille.get("dernier_signal") or 0,
+            }
 
     # On n'efface l'ancien que si on a de quoi le remplacer, ou si le
     # navigateur dit clairement qu'il ne reste plus rien de trace. Un envoi
@@ -463,21 +477,29 @@ def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
         sens = "Crossing Down" if (x.get("chg_h1") or 0) <= 0 else "Crossing Up"
 
     z = bornes(l)
-    # rouge pour un TRAIT, orange pour une ZONE. Ce ne sont pas les memes
-    # entrees : on touche une ligne, on entre dans une zone.
-    corps = [
-        f"{'🟠' if z else '🔴'} *{titre}*",
-        f"{label} · " + ("POI touch" if l.get("zone") == "poi"
-                         else ("Fib 0.618-0.65 touch" if z else "Trendline touch")),
-        "",
-        f"- {sens}",
-        f"- {quoi} : `{_val(val, unite)}`",
-    ]
     if z:
-        corps.append(f"- Zone : `{_val(z[0], unite)}` - `{_val(z[1], unite)}`")
-    corps += ["", ("Le prix revient dans ta zone POI." if l.get("zone") == "poi"
-                   else "Le prix revient dans ta zone Fib.") if z
-                  else "Le prix revient sur la ligne que tu as tracee."]
+        # Une zone : on dit qu'on y est, et a quel prix. Pas de sens — a
+        # l'interieur l'ecart est nul, la direction serait devinee. Pas de
+        # bornes non plus : elles sont deja sur le chart de l'utilisateur.
+        quelle = {"poi": "POI touch",
+                  "fib786": "Fib 0.786 touch"}.get(
+            l.get("zone"), "Fib 0.618-0.65 touch")
+        corps = [
+            f"🟠 *{titre}*",
+            f"{label} · {quelle}",
+            "",
+            f"- {quoi} : `{_val(val, unite)}`",
+        ]
+    else:
+        corps = [
+            f"🔴 *{titre}*",
+            f"{label} · Trendline touch",
+            "",
+            f"- {sens}",
+            f"- {quoi} : `{_val(val, unite)}`",
+            "",
+            "Le prix revient sur la ligne que tu as tracee.",
+        ]
     cible = x.get("pair") or l.get("pair") or l.get("mint")
     corps += ["", f"[DexScreener]({dex_link(chain, cible)})"
                   f" · [GMGN]({gmgn_link(chain, l.get('mint'))})"]
@@ -543,7 +565,7 @@ def poll(log=print, envoyer: bool = None) -> int:
 
         # rearmement : la ligne doit s'etre eloignee pour pouvoir resonner
         if abs(e) >= APPROCHE:
-            if not l.get("arme"):
+            if not l.get("arme") and not l.get("unique"):
                 l["arme"] = True
                 change = True
             continue

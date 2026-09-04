@@ -87,7 +87,7 @@ STAB_M5 = -6.0           # la chute doit se calmer : pas de couteau qui tombe
 # Les coins SANS note ne passent pas : une pool qui vient de naitre ou un
 # coin ou un insider vient d'entrer reste sous surveillance, mais n'alerte
 # qu'une fois que le scanner l'a note. On analyse d'abord, on propose ensuite.
-NOTE_MINI = "B+"
+NOTE_MINI = "A-"
 
 EXPANSION_H6 = 60.0      # le coin a pris ca sur 6 h : l'expansion a eu lieu
 RECUL_H1_MIN = 10.0      # et il rend du terrain depuis une heure
@@ -547,9 +547,14 @@ def poll(log=print, envoyer: bool = None) -> int:
             continue
         if config.grade_rank(e.get("grade") or "") < config.grade_rank(NOTE_MINI):
             continue
+        # le scan vient peut-etre de l'annoncer : un meme coin ne part pas
+        # deux fois le meme jour sous deux phases differentes
+        if tg.deja_alerte(m):
+            continue
         if tg.send(_message(e, x)):
             envoyees += 1
             e["alerte_at"] = maintenant
+            tg.marquer_envoye(m, x.get("symbol"), e.get("grade"))
             log(f"[expansion] {x.get('symbol')} — repli de {repli*100:.0f}% "
                 f"sous {tg._usd(haut)}, 5 min a {x.get('chg_m5', 0):+.0f}%")
 
