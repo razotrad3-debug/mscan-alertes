@@ -497,8 +497,6 @@ def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
             "",
             f"- {sens}",
             f"- {quoi} : `{_val(val, unite)}`",
-            "",
-            "Le prix revient sur la ligne que tu as tracee.",
         ]
     cible = x.get("pair") or l.get("pair") or l.get("mint")
     corps += ["", f"[DexScreener]({dex_link(chain, cible)})"
