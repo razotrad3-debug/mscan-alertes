@@ -439,9 +439,10 @@ def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
     """
     Court, et il dit d'ou vient le prix.
 
-    Le rond est rouge quelle que soit la chaine : une alerte de trace vient
-    de TOI, pas du scanner, et doit se reconnaitre d'un coup d'oeil au milieu
-    des autres. Le rouge tranche mieux que l'orange dans un fil Telegram.
+    Le rond ne suit jamais la chaine : une alerte de trace vient de TOI, pas
+    du scanner. Rouge pour un trait — trendline, demi-droite, niveau —,
+    orange pour une zone — Fib, POI. On touche une ligne, on entre dans une
+    zone : deux gestes differents, deux couleurs.
     """
     from mmscanner import telegram_alerts as tg
     from mmscanner.model import dex_link, gmgn_link
@@ -462,8 +463,10 @@ def _message(l: dict, x: dict, val: float, n: float, ecart: float) -> str:
         sens = "Crossing Down" if (x.get("chg_h1") or 0) <= 0 else "Crossing Up"
 
     z = bornes(l)
+    # rouge pour un TRAIT, orange pour une ZONE. Ce ne sont pas les memes
+    # entrees : on touche une ligne, on entre dans une zone.
     corps = [
-        f"🔴 *{titre}*",
+        f"{'🟠' if z else '🔴'} *{titre}*",
         f"{label} · " + ("POI touch" if l.get("zone") == "poi"
                          else ("Fib 0.618-0.65 touch" if z else "Trendline touch")),
         "",
