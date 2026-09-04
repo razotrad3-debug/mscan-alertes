@@ -49,7 +49,15 @@ _dead_keys = set()          # cles a court de credits sur cette periode
 
 
 def has_key() -> bool:
-    return bool(getattr(config, "FOMOSCAN_API_KEY", ""))
+    """
+    Y a-t-il au moins une cle utilisable ?
+
+    On interroge _keys() plutot que la variable au singulier : le depot et le
+    workflow ne renseignent que FOMOSCAN_API_KEYS, au pluriel. La resolution
+    de pseudo se refusait donc elle-meme avant d'essayer, alors que la cle
+    etait bien la.
+    """
+    return bool(_keys())
 
 
 def _get(path: str, params: dict = None, tries: int = 3) -> Optional[dict]:
