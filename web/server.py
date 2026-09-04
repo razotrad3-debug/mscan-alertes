@@ -1370,6 +1370,31 @@ function applyFilter(f){
    t.style.color='#ff9f45'; t.style.borderColor='rgba(255,159,69,.45)';
    n.appendChild(document.createTextNode(' ')); n.appendChild(t);});});
 }catch(_){}})();
+// ouvrir d'un coup tous les charts des lignes affichees
+(function(){
+ var b=document.getElementById('toutdex'); if(!b)return;
+ var PLAFOND=50;
+ b.addEventListener('click',function(){
+  // offsetParent plutot que .hidden : une ligne peut etre masquee de
+  // plusieurs facons, et seule celle qu'on VOIT doit s'ouvrir
+  var liens=[].slice.call(document.querySelectorAll('a[title="DexScreener"]'))
+    .filter(function(a){var it=a.closest('.item');return it&&it.offsetParent!==null;});
+  if(!liens.length){alert('Aucun chart a ouvrir.');return;}
+  var msg;
+  if(liens.length>PLAFOND){
+   msg=liens.length+' charts affiches, trop pour un seul geste. On ouvre les '
+     +PLAFOND+' premiers. Filtre la liste pour viser plus juste.';
+   liens=liens.slice(0,PLAFOND);
+  }else{
+   msg='Ouvrir les '+liens.length+' charts DexScreener ?';
+  }
+  if(!confirm(msg+' Autorise les fenetres surgissantes si le navigateur les bloque.'))return;
+  b.disabled=true;
+  // toutes dans le meme geste : un window.open differe se fait bloquer
+  liens.forEach(function(a){try{window.open(a.href,'_blank','noopener');}catch(e){}});
+  setTimeout(function(){b.disabled=false;},1500);
+ });
+})();
 // retirer un coin de la surveillance depuis la liste Trendline
 document.addEventListener('click',async function(e){
  var b=e.target.closest('.tloub'); if(!b)return;
@@ -1481,6 +1506,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip" data-f="running">Running <i>{{ counts.running }}</i></button>
     <button class="chip" data-f="retest">Retest <i>{{ counts.retest }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
+    <button class="ic toutdex" id="toutdex" title="Ouvrir tous les charts affiches">{{ icon('trend') }}</button>
   </div>
   <script>window.TL_MINTS={{ tl_mints|tojson }};</script>
 
@@ -1701,13 +1727,22 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
 // ── ouvrir tous les charts de la page ──────────────────────────────
 (function(){
  var b=document.getElementById('toutdex'); if(!b)return;
+ var PLAFOND=50;
  b.addEventListener('click',function(){
-  var liens=[].slice.call(document.querySelectorAll('.rows a[title="DexScreener"]'))
-    .filter(function(a){var it=a.closest('.item');return !it||!it.hidden;});
+  // offsetParent plutot que .hidden : une ligne peut etre masquee de
+  // plusieurs facons, et seule celle qu'on VOIT doit s'ouvrir
+  var liens=[].slice.call(document.querySelectorAll('a[title="DexScreener"]'))
+    .filter(function(a){var it=a.closest('.item');return it&&it.offsetParent!==null;});
   if(!liens.length){alert('Aucun chart a ouvrir.');return;}
-  if(!confirm('Ouvrir les '+liens.length+' charts DexScreener ? Ils partiront'
-    +' dans '+liens.length+' onglets. Autorise les fenetres surgissantes si'
-    +' le navigateur les bloque.'))return;
+  var msg;
+  if(liens.length>PLAFOND){
+   msg=liens.length+' charts affiches, trop pour un seul geste. On ouvre les '
+     +PLAFOND+' premiers. Filtre la liste pour viser plus juste.';
+   liens=liens.slice(0,PLAFOND);
+  }else{
+   msg='Ouvrir les '+liens.length+' charts DexScreener ?';
+  }
+  if(!confirm(msg+' Autorise les fenetres surgissantes si le navigateur les bloque.'))return;
   b.disabled=true;
   // toutes dans le meme geste : un window.open differe se fait bloquer
   liens.forEach(function(a){try{window.open(a.href,'_blank','noopener');}catch(e){}});
