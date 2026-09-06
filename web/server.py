@@ -258,9 +258,39 @@ def create_app():
             tl_mints, tl_rows = [], []
         counts["ligne"] = len(tl_mints)
 
+        # ce qui est parti sur Telegram aujourd'hui. C'est le cloud qui
+        # envoie : l'application lit la liste qu'il publie, chiffree.
+        try:
+            from mmscanner import telegram_alerts as tgm, holdings as hmod2
+            jour = tgm.jour_partage()
+            manquants = [m for m in jour if m not in {p.mint for p in ranked}]
+            frais2 = hmod2._metriques(manquants) if manquants else {}
+            connus2 = {p.mint: p for p in ranked}
+            today_rows = []
+            for m, v in jour.items():
+                q = connus2.get(m)
+                x = frais2.get(m) or {}
+                today_rows.append({
+                    "mint": m,
+                    "symbol": (q.symbol if q else None) or x.get("symbol") or v.get("symbol") or "?",
+                    "chain": (q.chain if q else None) or x.get("chain") or v.get("chain") or "solana",
+                    "pair": (q.pair_address if q else None) or x.get("pair") or "",
+                    "mc": (q.market_cap if q else None) or x.get("mc"),
+                    "chg_h1": (q.chg_h1 if q else None) if q else x.get("chg_h1"),
+                    "grade": (q.grade if q else None) or v.get("grade") or "",
+                    "score": q.score if q else 0,
+                    "max_score": q.max_score if q else 12,
+                    "phase": q.phase if q else "",
+                    "at": v.get("at") or 0,
+                })
+            today_rows.sort(key=lambda c: -(c.get("at") or 0))
+        except Exception:
+            today_rows = []
+        counts["today"] = len(today_rows)
+
         return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra,
                                       veille=veille, counts=counts,
-                                      tl_mints=tl_mints, tl_rows=tl_rows,
+                                      tl_mints=tl_mints, tl_rows=tl_rows, today_rows=today_rows,
                                       chains=chains, chainmeta=config.CHAIN_META,
                                       meta=meta, active="radar",
                                       prog=meta.get("progress", {}),
@@ -1345,8 +1375,12 @@ function applyFilter(f){
   // les lignes de trendline ont leur propre presentation : elles ne
   // s'affichent que sous leur puce, et la ligne normale du meme coin
   // s'efface alors, pour ne pas le montrer deux fois
+  var tdo=it.getAttribute('data-tdonly')==='1';
   if(f!=='ligne'&&tlo){it.hidden=true;return;}
   if(f==='ligne'&&!tlo){it.hidden=true;return;}
+  // meme principe pour la liste du jour : sa propre presentation, son propre onglet
+  if(f!=='today'&&tdo){it.hidden=true;return;}
+  if(f==='today'&&!tdo){it.hidden=true;return;}
   if(f==='veille')    ok = vl;
   else if(f==='ligne')ok = true;
   else if(f==='conv') ok = w>=2;
@@ -1354,7 +1388,7 @@ function applyFilter(f){
   else if(f==='wallet')ok = w>=1;
   else if(f==='running')  ok = ph==='Running';
   else if(f==='early')    ok = ph==='Early';
-  else if(f==='retest')   ok = ph==='Retest';
+  else if(f==='today')ok = it.getAttribute('data-today')==='1';
   it.hidden=!ok; if(ok)shown++;});
  var n=document.getElementById('nores'); if(n)n.hidden=shown>0;
  var r=document.getElementById('rows'); if(r)r.hidden=shown===0;}
@@ -1504,7 +1538,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
     <button class="chip" data-f="early">Jeune <i>{{ counts.early }}</i></button>
     <button class="chip" data-f="running">Running <i>{{ counts.running }}</i></button>
-    <button class="chip" data-f="retest">Retest <i>{{ counts.retest }}</i></button>
+    <button class="chip" data-f="today">Today <i>{{ counts.today }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
     <button class="ic toutdex" id="toutdex" title="Ouvrir tous les charts affiches">{{ icon('trend') }}</button>
   </div>
@@ -1565,6 +1599,25 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
           <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
           <button class="ic tloub" title="Ne plus surveiller ce coin" data-mint="{{ c.mint }}" data-sym="{{ c.symbol }}">&#10005;</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% for c in today_rows %}
+    <div class="item" data-mint="{{ c.mint }}" data-grade="{{ c.grade or '—' }}"
+         data-phase="{{ c.phase or '—' }}" data-chain="{{ c.chain or 'solana' }}"
+         data-wallets="0" data-today="1" data-tdonly="1">
+      <div class="r" style="grid-template-columns:74px minmax(0,1fr) 96px auto">
+        <div class="gr" style="--gc:var(--gold);color:var(--gold);font-size:8px;letter-spacing:.06em">TODAY</div>
+        <div class="id">
+          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}{% if c.score %} {{ c.score }}/{{ c.max_score }}{% endif %}</span>{% endif %}</div>
+          <div class="s">alerte {{ c.at|ago }}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}</div>
+        </div>
+        <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
+          {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
+        <div class="acts">
+          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
         </div>
       </div>
     </div>

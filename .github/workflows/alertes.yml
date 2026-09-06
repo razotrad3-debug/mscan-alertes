@@ -16,6 +16,11 @@ concurrency:
   group: mscan-scan
   cancel-in-progress: false    # on ne coupe jamais une fenetre en cours
 
+# le bot publie la liste des alertes du jour pour que l'application
+# puisse l'afficher : il lui faut le droit d'ecrire dans le depot
+permissions:
+  contents: write
+
 jobs:
   scan:
     runs-on: ubuntu-latest

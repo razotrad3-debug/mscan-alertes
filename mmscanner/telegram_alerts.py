@@ -118,15 +118,62 @@ def deja_alerte(mint: str, heures: float = None) -> bool:
     return isinstance(v, dict) and v.get("at", 0) > fenetre
 
 
-def marquer_envoye(mint: str, symbol: str = "", grade: str = "") -> None:
-    """Inscrit un envoi dans le registre commun."""
+def marquer_envoye(mint: str, symbol: str = "", grade: str = "",
+                   chain: str = "") -> None:
+    """Inscrit un envoi dans le registre commun, et le publie pour l'app."""
     if not mint:
         return
     d = _load()
     d[mint] = {"at": time.time(),
                "jour": time.strftime("%Y-%m-%d"),
-               "grade": grade, "symbol": symbol}
+               "grade": grade, "symbol": symbol, "chain": chain}
     _save(d)
+    publier_jour()
+
+
+def alertes_du_jour() -> dict:
+    """Ce qui est parti sur Telegram aujourd'hui : {mint: infos}."""
+    aujourdhui = time.strftime("%Y-%m-%d")
+    d = _load()
+    return {m: v for m, v in d.items()
+            if isinstance(v, dict) and v.get("jour") == aujourdhui and v.get("at")}
+
+
+def jour_partage() -> dict:
+    """
+    Les alertes du jour, d'ou qu'elles viennent.
+
+    L'application ne les envoie pas : elle les lit dans le fichier que le
+    cloud publie. On y ajoute ce qu'elle aurait envoye elle-meme, au cas ou
+    le relais serait revenu de ce cote.
+    """
+    aujourdhui = time.strftime("%Y-%m-%d")
+    out = dict(alertes_du_jour())
+    try:
+        from mmscanner import partage
+        d = partage.lire("alertes_jour.enc", defaut={}) or {}
+        if d.get("jour") == aujourdhui:
+            for m, v in (d.get("coins") or {}).items():
+                out.setdefault(m, v)
+    except Exception:
+        pass
+    return out
+
+
+def publier_jour(log=print) -> bool:
+    """
+    Publie la liste du jour pour que l'application puisse l'afficher.
+
+    C'est le cloud qui envoie les alertes : sans ce chemin retour,
+    l'application ne sait rien de ce qui est parti.
+    """
+    try:
+        from mmscanner import partage
+        return partage.publier("alertes_jour.enc",
+                               {"jour": time.strftime("%Y-%m-%d"),
+                                "coins": alertes_du_jour()}, log=log)
+    except Exception:
+        return False
 
 
 SENT_IDS_FILE = config.path("telegram_msgids.json")
@@ -345,7 +392,8 @@ def notify_new(pairs: List, grades=None) -> int:
 
         if send(format_alert(p)):
             sent[p.mint] = {"at": now, "jour": aujourdhui,
-                            "grade": p.grade, "symbol": p.symbol}
+                            "grade": p.grade, "symbol": p.symbol,
+                            "chain": p.chain}
             n += 1
             time.sleep(0.4)       # limite Telegram : ~30 msg/s, on reste large
 
@@ -355,6 +403,8 @@ def notify_new(pairs: List, grades=None) -> int:
               if isinstance(v, dict) and v.get("at", 0) < vieux]:
         sent.pop(k, None)
     _save(sent)
+    if n:
+        publier_jour()
     if n or supprimees:
         print(f"[telegram] {n} envoyee(s), {supprimees} deja vue(s) dans "
               f"les {ALERT_COOLDOWN_H} h")

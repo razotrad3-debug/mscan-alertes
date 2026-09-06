@@ -554,7 +554,7 @@ def poll(log=print, envoyer: bool = None) -> int:
         if tg.send(_message(e, x)):
             envoyees += 1
             e["alerte_at"] = maintenant
-            tg.marquer_envoye(m, x.get("symbol"), e.get("grade"))
+            tg.marquer_envoye(m, x.get("symbol"), e.get("grade"), x.get("chain"))
             log(f"[expansion] {x.get('symbol')} — repli de {repli*100:.0f}% "
                 f"sous {tg._usd(haut)}, 5 min a {x.get('chg_m5', 0):+.0f}%")
 
