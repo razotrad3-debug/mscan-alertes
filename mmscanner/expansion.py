@@ -555,6 +555,17 @@ def poll(log=print, envoyer: bool = None) -> int:
             envoyees += 1
             e["alerte_at"] = maintenant
             tg.marquer_envoye(m, x.get("symbol"), e.get("grade"), x.get("chain"))
+            try:
+                from mmscanner import journal
+                journal.noter({"mint": m, "symbol": x.get("symbol"),
+                               "chain": x.get("chain"), "pair": x.get("pair"),
+                               "grade": e.get("grade"), "score": e.get("score"),
+                               "phase": "Pullback", "mc": mc,
+                               "liq": x.get("liquidity_usd"),
+                               "chg_m5": x.get("chg_m5"), "chg_h1": x.get("chg_h1")},
+                              "pullback")
+            except Exception:
+                pass
             log(f"[expansion] {x.get('symbol')} — repli de {repli*100:.0f}% "
                 f"sous {tg._usd(haut)}, 5 min a {x.get('chg_m5', 0):+.0f}%")
 

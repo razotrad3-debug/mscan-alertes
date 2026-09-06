@@ -394,6 +394,11 @@ def notify_new(pairs: List, grades=None) -> int:
             sent[p.mint] = {"at": now, "jour": aujourdhui,
                             "grade": p.grade, "symbol": p.symbol,
                             "chain": p.chain}
+            try:
+                from mmscanner import journal
+                journal.noter(p, "scan")
+            except Exception:
+                pass
             n += 1
             time.sleep(0.4)       # limite Telegram : ~30 msg/s, on reste large
 
