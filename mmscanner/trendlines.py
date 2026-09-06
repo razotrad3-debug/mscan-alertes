@@ -693,7 +693,10 @@ def publier(log=print) -> bool:
     sans_fenetre = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
     def git(*args):
-        return subprocess.run(("git",) + args, cwd=racine, capture_output=True,
+        # identite passee a chaque appel : voir partage.py, le runner n'en a pas
+        return subprocess.run(("git", "-c", "user.name=MSCAN",
+                               "-c", "user.email=mscan@localhost") + args,
+                              cwd=racine, capture_output=True,
                               text=True, timeout=90, creationflags=sans_fenetre)
     try:
         # on ne commite QUE ce fichier : le reste du depot ne nous regarde pas

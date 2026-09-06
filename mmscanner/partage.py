@@ -69,13 +69,20 @@ def publier(fichier: str, donnees, log=print) -> bool:
     sans_fenetre = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
     def git(*args):
-        return subprocess.run(("git",) + args, cwd=racine, capture_output=True,
+        # L'identite est passee a chaque appel : le runner GitHub n'en a
+        # aucune de configuree, et un commit sans auteur echoue avec
+        # "Author identity unknown". C'est ce qui empechait le cloud de
+        # publier quoi que ce soit, en silence.
+        return subprocess.run(("git", "-c", "user.name=MSCAN",
+                               "-c", "user.email=mscan@localhost") + args,
+                              cwd=racine, capture_output=True,
                               text=True, timeout=90, creationflags=sans_fenetre)
     try:
         git("add", fichier)
         r = git("commit", fichier, "-m", fichier.split(".")[0])
         if r.returncode != 0 and "nothing to commit" not in (r.stdout or ""):
-            log(f"[partage] commit : {(r.stdout or r.stderr)[:120]}")
+            log(f"[partage] ECHEC commit {fichier} : "
+                f"{((r.stderr or '') + (r.stdout or ''))[:200]}")
             return False
         r = git("push", "origin", "HEAD")
         if r.returncode != 0:

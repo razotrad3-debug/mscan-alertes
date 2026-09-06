@@ -322,14 +322,18 @@ def create_app():
                                             c["points"] / max(1, c["possibles"]),
                                             c.get("mc") or 0), reverse=True)
             pep_etat = pep.etat()
+            # de quoi poser un badge sur les lignes ordinaires : on voit
+            # qu'un coin est retenu sans avoir a changer de filtre
+            pot_marques = {c["mint"]: f"{c['points']}/{c['possibles']}"
+                           for c in pepite_rows}
         except Exception:
-            pepite_rows, pep_etat = [], {}
+            pepite_rows, pep_etat, pot_marques = [], {}, {}
         counts["pepite"] = len(pepite_rows)
 
         return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra,
                                       veille=veille, counts=counts,
                                       tl_mints=tl_mints, tl_rows=tl_rows, tl_marques=tl_marques,
-                                      today_rows=today_rows, pepite_rows=pepite_rows, pep_etat=pep_etat,
+                                      today_rows=today_rows, pepite_rows=pepite_rows, pep_etat=pep_etat, pot_marques=pot_marques,
                                       chains=chains, chainmeta=config.CHAIN_META,
                                       meta=meta, active="radar",
                                       prog=meta.get("progress", {}),
@@ -1504,6 +1508,18 @@ function applyFilter(f){
  });
 })();
 // marquer une pepite : ce clic est ce qui entraine le modele
+// badge Potentiel sur les lignes ordinaires : visible sans changer de filtre
+(function(){try{
+ Object.keys(window.POTENTIEL||{}).forEach(function(m){
+  document.querySelectorAll('#rows .item[data-mint="'+m+'"]').forEach(function(it){
+   if(it.getAttribute('data-peponly')==='1')return;
+   var n=it.querySelector('.id .n'); if(!n||n.querySelector('.pottag'))return;
+   var t=document.createElement('span');
+   t.className='tag pottag'; t.textContent='POTENTIEL';
+   t.title='retenu par le modele : '+window.POTENTIEL[m];
+   t.style.color='#4ade80'; t.style.borderColor='rgba(74,222,128,.45)';
+   n.appendChild(document.createTextNode(' ')); n.appendChild(t);});});
+}catch(_){}})();
 document.addEventListener('click',async function(e){
  var b=e.target.closest('.pepmarque'); if(!b)return;
  e.preventDefault(); e.stopPropagation();
@@ -1625,14 +1641,15 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip on" data-f="tous">Tous <i>{{ counts.tous }}</i></button>
     <button class="chip gold" data-f="top">A+ / A / A- <i>{{ counts.top }}</i></button>
     <button class="chip tl" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
-    <button class="chip pep" data-f="pepite">Pépite <i>{{ counts.pepite }}</i></button>
+    <button class="chip pep" data-f="pepite">Potentiel <i>{{ counts.pepite }}</i></button>
     <button class="chip" data-f="conv">Convergence <i>{{ counts.conv }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
     <button class="chip" data-f="today">Today <i>{{ counts.today }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
     <button class="ic toutdex" id="toutdex" title="Ouvrir tous les charts affiches">{{ icon('trend') }}</button>
   </div>
-  <script>window.TL_MARQUES={{ tl_marques|tojson }};</script>
+  <script>window.TL_MARQUES={{ tl_marques|tojson }};
+          window.POTENTIEL={{ pot_marques|tojson }};</script>
 
   {% if pairs or extra or veille or tl_rows %}
   <div class="rows" id="rows">
@@ -1726,7 +1743,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
         <div class="acts">
-          <button class="ic pepmarque" title="Marquer comme pepite — sert a entrainer le modele"
+          <button class="ic pepmarque" title="Marquer comme potentiel — ce jugement entraine le modele"
                   data-mint="{{ c.mint }}" data-sym="{{ c.symbol }}" data-chain="{{ c.chain }}">
             <span class="pepetoile{{ ' on' if c.marque }}">&#9733;</span></button>
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
