@@ -299,10 +299,39 @@ def create_app():
             today_rows = []
         counts["today"] = len(today_rows)
 
+        # Pepites : les coins qui cochent le modele mesure. Le modele ne
+        # porte que sur ce qui a ete verifie ; la note du radar sert a
+        # ORDONNER la liste, pas a y entrer — on ne melange pas ce qui est
+        # mesure et ce qui est suppose.
+        try:
+            from mmscanner import pepites as pep
+            marques = set(pep.gagnants())
+            pepite_rows = []
+            for q in ranked:
+                o, poss, pourquoi = pep.noter(q)
+                if not poss or o / poss < 0.75:
+                    continue
+                pepite_rows.append({
+                    "mint": q.mint, "symbol": q.symbol, "chain": q.chain or "solana",
+                    "pair": q.pair_address or "", "mc": q.market_cap,
+                    "chg_h1": q.chg_h1, "grade": q.grade, "score": q.score,
+                    "max_score": q.max_score, "phase": q.phase,
+                    "points": o, "possibles": poss, "pourquoi": pourquoi,
+                    "top10": q.top10_pct,
+                    "marque": q.mint in marques,
+                })
+            pepite_rows.sort(key=lambda c: (config.grade_rank(c["grade"]),
+                                            c["points"] / max(1, c["possibles"]),
+                                            c.get("mc") or 0), reverse=True)
+            pep_etat = pep.etat()
+        except Exception:
+            pepite_rows, pep_etat = [], {}
+        counts["pepite"] = len(pepite_rows)
+
         return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra,
                                       veille=veille, counts=counts,
                                       tl_mints=tl_mints, tl_rows=tl_rows, tl_marques=tl_marques,
-                                      today_rows=today_rows,
+                                      today_rows=today_rows, pepite_rows=pepite_rows, pep_etat=pep_etat,
                                       chains=chains, chainmeta=config.CHAIN_META,
                                       meta=meta, active="radar",
                                       prog=meta.get("progress", {}),
@@ -608,6 +637,33 @@ def create_app():
         # GET sert aussi de signature : c'est ainsi que le script trouve le
         # bon port, l'app ne tournant pas toujours sur le meme
         return _ouvrir(jsonify({"app": "mscan", "lignes": trendlines.lignes()}))
+
+    @app.route("/api/pepites/dossier")
+    def api_pepites_dossier():
+        """
+        Tout ce qu'il faut pour une analyse : le journal, les pepites
+        marquees, le modele courant. A donner tel quel a qui analysera.
+        """
+        from mmscanner import journal, pepites
+        j = journal._lire() or journal.charger_partage()
+        return jsonify({
+            "genere": time.strftime("%Y-%m-%d %H:%M"),
+            "modele": pepites.modele(),
+            "etat": pepites.etat(),
+            "marquees": pepites.gagnants(),
+            "journal": j,
+            "resume": journal.resume(),
+        })
+
+    @app.route("/api/pepites/marquer", methods=["POST"])
+    def api_pepites_marquer():
+        """L'utilisateur designe une pepite : c'est ce qui entraine le modele."""
+        from mmscanner import pepites
+        d = request.get_json(force=True, silent=True) or {}
+        ok = pepites.marquer(d.get("mint") or "", d.get("symbol") or "",
+                             d.get("chain") or "", d.get("note") or "")
+        return jsonify({"ok": ok, "marque": (d.get("mint") or "") in pepites.gagnants(),
+                        "total": len(pepites.gagnants())})
 
     @app.route("/api/trendlines/oublier", methods=["POST"])
     def api_trendlines_oublier():
@@ -1016,6 +1072,12 @@ details[open]>summary .wchev{transform:rotate(180deg)}
 .toutdex .dexlogo{width:17px;height:17px;opacity:1}
 .toutdex:hover{background:rgba(212,175,55,.28)}
 .toutdex:disabled{opacity:.4;cursor:default}
+.chips .chip.pep{border-color:rgba(74,222,128,.35);color:#4ade80}
+.chips .chip.pep i{color:rgba(74,222,128,.65)}
+.chips .chip.pep.on{background:rgba(74,222,128,.16);border-color:#4ade80;color:#86efac}
+.chips .chip.pep.on i{color:#4ade80}
+.pepetoile{color:var(--fg-4);font-size:13px;line-height:1}
+.pepetoile.on{color:#4ade80}
 .chips .chip.tl{border-color:rgba(255,159,69,.35);color:#ff9f45}
 .chips .chip.tl i{color:rgba(255,159,69,.65)}
 .chips .chip.tl.on{background:rgba(255,159,69,.16);border-color:#ff9f45;color:#ffb877}
@@ -1393,6 +1455,9 @@ function applyFilter(f){
   // meme principe pour la liste du jour : sa propre presentation, son propre onglet
   if(f!=='today'&&tdo){it.hidden=true;return;}
   if(f==='today'&&!tdo){it.hidden=true;return;}
+  var pep=it.getAttribute('data-peponly')==='1';
+  if(f!=='pepite'&&pep){it.hidden=true;return;}
+  if(f==='pepite'&&!pep){it.hidden=true;return;}
   if(f==='veille')    ok = vl;
   else if(f==='ligne')ok = true;
   else if(f==='conv') ok = w>=2;
@@ -1401,6 +1466,7 @@ function applyFilter(f){
   else if(f==='running')  ok = ph==='Running';
   else if(f==='early')    ok = ph==='Early';
   else if(f==='today')ok = it.getAttribute('data-today')==='1';
+  else if(f==='pepite')ok = true;
   it.hidden=!ok; if(ok)shown++;});
  var n=document.getElementById('nores'); if(n)n.hidden=shown>0;
  var r=document.getElementById('rows'); if(r)r.hidden=shown===0;}
@@ -1441,6 +1507,23 @@ function applyFilter(f){
   setTimeout(function(){b.disabled=false;},1500);
  });
 })();
+// marquer une pepite : ce clic est ce qui entraine le modele
+document.addEventListener('click',async function(e){
+ var b=e.target.closest('.pepmarque'); if(!b)return;
+ e.preventDefault(); e.stopPropagation();
+ var et=b.querySelector('.pepetoile');
+ b.disabled=true;
+ try{
+  var r=await fetch('/api/pepites/marquer',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mint:b.getAttribute('data-mint'),
+                         symbol:b.getAttribute('data-sym'),
+                         chain:b.getAttribute('data-chain')})});
+  var d=await r.json();
+  if(et)et.className='pepetoile'+(d&&d.marque?' on':'');
+ }catch(_){}
+ b.disabled=false;
+});
 // retirer un coin de la surveillance depuis la liste Trendline
 document.addEventListener('click',async function(e){
  var b=e.target.closest('.tloub'); if(!b)return;
@@ -1546,6 +1629,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip on" data-f="tous">Tous <i>{{ counts.tous }}</i></button>
     <button class="chip gold" data-f="top">A+ / A / A- <i>{{ counts.top }}</i></button>
     <button class="chip tl" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
+    <button class="chip pep" data-f="pepite">Pépite <i>{{ counts.pepite }}</i></button>
     <button class="chip" data-f="conv">Convergence <i>{{ counts.conv }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
     <button class="chip" data-f="early">Jeune <i>{{ counts.early }}</i></button>
@@ -1629,6 +1713,28 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
         <div class="acts">
+          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% for c in pepite_rows %}
+    <div class="item" data-mint="{{ c.mint }}" data-grade="{{ c.grade or '—' }}"
+         data-phase="{{ c.phase or '—' }}" data-chain="{{ c.chain or 'solana' }}"
+         data-wallets="0" data-peponly="1">
+      <div class="r" style="grid-template-columns:52px minmax(0,1fr) 96px auto">
+        <div class="gr" style="--gc:#4ade80;color:#4ade80">{{ c.points }}/{{ c.possibles }}</div>
+        <div class="id">
+          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }} {{ c.score }}/{{ c.max_score }}</span>{% endif %}</div>
+          <div class="s">{{ c.pourquoi|join(' · ') }}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.top10 %} · top10 {{ '%.0f'|format(c.top10 * 100) }}%{% endif %}</div>
+        </div>
+        <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
+          {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
+        <div class="acts">
+          <button class="ic pepmarque" title="Marquer comme pepite — sert a entrainer le modele"
+                  data-mint="{{ c.mint }}" data-sym="{{ c.symbol }}" data-chain="{{ c.chain }}">
+            <span class="pepetoile{{ ' on' if c.marque }}">&#9733;</span></button>
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
           <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
         </div>

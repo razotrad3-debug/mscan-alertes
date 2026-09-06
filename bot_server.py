@@ -154,6 +154,8 @@ def main():
     # 60 s et signale l'entree elle-meme, donc avant le classement.
     _naissances = {"at": 0.0}
 
+    _apprentissage = {"at": 0.0}
+
     def _veille():
         try:
             insider_watch.poll(amorcage=True)   # 1er tour : on note sans alerter
@@ -188,6 +190,15 @@ def main():
                 journal.suivre()
             except Exception as e:
                 print(f"[journal] {e}")
+            # le modele des pepites se recalcule sur le journal, une fois
+            # par heure : inutile plus souvent, le journal grossit lentement
+            try:
+                if time.time() - _apprentissage["at"] > 3600:
+                    _apprentissage["at"] = time.time()
+                    from mmscanner import pepites
+                    pepites.apprendre()
+            except Exception as e:
+                print(f"[pepites] {e}")
             # cadence de 60 s quoi qu'il arrive, meme si le tour a ete long
             time.sleep(max(5, 60 - (time.time() - debut)))
 
