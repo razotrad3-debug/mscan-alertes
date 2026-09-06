@@ -61,8 +61,8 @@ def one_scan() -> int:
     # photos de soldes : garde le Whale Flow alimente meme sans l'interface
     try:
         from mmscanner import holder_flow
-        for p in pairs[: config.SMARTMONEY_TOP_N]:
-            holder_flow.snapshot(p.mint, p.price_usd)
+        for p in pairs[: config.PHOTOS_TOP_N]:
+            holder_flow.snapshot(p.mint, p.price_usd, symbol=p.symbol or "")
     except Exception as e:
         print(f"[flow] {e}")
 

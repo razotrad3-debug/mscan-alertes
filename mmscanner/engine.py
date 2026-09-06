@@ -26,6 +26,9 @@ def _liquidity_ok(liq: float, vol24: float) -> bool:
     return (liq >= config.MIN_LIQ_EARLY) and (vol24 >= config.MIN_VOL_EARLY)
 
 
+FENETRE_WALLET_H = 168      # un coin achete par un wallet suivi reste scanne 7 j
+
+
 def is_crypto_native(symbol: str, name: str, mint: str = "", mc: float = None) -> bool:
     """
     Vrai si le token est du crypto-natif jouable.
@@ -170,7 +173,13 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
     try:
         from .followed import recent_mints
         connus = {r["mint"] for r in cands}
-        wallet_mints = {m for m in recent_mints(hours=48) if m not in connus}
+        # 7 jours et non 48 h. LAYOOO a ete achete par un wallet suivi, puis a
+        # fait +157 % trois jours plus tard : a 48 h il etait deja sorti de
+        # l'univers scanne quand il a bouge. Les gagnants mettent des jours,
+        # pas des heures. Le magasin ne retient qu'environ trois jours, donc
+        # ce reglage ne coute rien de plus que 72 h aujourd'hui.
+        wallet_mints = {m for m in recent_mints(hours=FENETRE_WALLET_H)
+                        if m not in connus}
         for m in wallet_mints:
             cands.append({"mint": m, "gecko_pool": None, "name": "?", "price_usd": 0.0,
                           "liquidity_usd": 0.0, "market_cap": 0.0, "fdv": 0.0,
@@ -317,6 +326,7 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
             p.top_holder_pct = conc["top_holder_pct"]
             p.top10_pct = conc["top10_pct"]
             p.holders = conc.get("holders")
+            p.foule = helius.foule(p.mint)
             sm = helius.smart_money_from_index(p.mint, index)
             p.smart_holders = sm["count"]
             p.smart_names = sm["wallets"]
@@ -378,6 +388,22 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
                 telegram_alerts.notify_new([p])
             except Exception as e:
                 log(f"[telegram] {e}")
+
+    # presence de la cohorte : une lecture de cache, aucun appel reseau,
+    # donc on la pose sur TOUTES les paires et pas seulement sur celles
+    # qui passent par la couche wallet.
+    try:
+        from mmscanner import cohorte as _coh
+        _idx = _coh.index(log=log)
+        for _p2 in pairs:
+            # .get sans defaut : un coin sans photo garde None, c'est-a-dire
+            # "pas mesure". Un zero ferait dire au modele que la cohorte est
+            # absente, ce qui est une affirmation qu'on n'a pas les moyens de
+            # faire — et c'est ce qui avait vide l'onglet Potentiel.
+            _p2.cohorte = _idx.get(_p2.mint)
+        log(f"[cohorte] lue sur {len(_idx)} coins photographies")
+    except Exception as e:
+        log(f"[cohorte] {e}")
 
     pairs.sort(
         key=lambda x: (config.grade_rank(x.grade), x.score, x.vol_h24),

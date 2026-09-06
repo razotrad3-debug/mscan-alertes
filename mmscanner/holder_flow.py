@@ -102,8 +102,15 @@ def balances(mint: str, max_pages: int = 4) -> Optional[Dict[str, float]]:
     return out
 
 
-def snapshot(mint: str, price_usd: float, force: bool = False) -> bool:
-    """Prend une photo des soldes si la dernière est assez ancienne."""
+def snapshot(mint: str, price_usd: float, force: bool = False,
+             symbol: str = "") -> bool:
+    """
+    Prend une photo des soldes si la derniere est assez ancienne.
+
+    Le symbole est conserve avec la photo : ces fichiers servent aussi a
+    retrouver, des mois plus tard, quels coins ont marche. Une adresse seule
+    ne dit rien a personne.
+    """
     snaps = _load(mint)
     if snaps and not force and (time.time() - snaps[-1].get("ts", 0)) < MIN_GAP_SEC:
         return False
@@ -111,8 +118,13 @@ def snapshot(mint: str, price_usd: float, force: bool = False) -> bool:
     if not bal:
         return False
     supply = bal.pop("__supply__", 0.0)
+    if not symbol:
+        for vieux in reversed(snaps):     # on garde celui deja connu
+            if vieux.get("sym"):
+                symbol = vieux["sym"]
+                break
     snaps.append({"ts": time.time(), "price": price_usd or 0.0,
-                  "supply": supply, "holders": bal})
+                  "supply": supply, "holders": bal, "sym": symbol or ""})
     _save(mint, snaps)
     return True
 

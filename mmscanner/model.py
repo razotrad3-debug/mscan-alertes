@@ -82,6 +82,11 @@ class Pair:
 
     # couche wallet (Helius)
     holders: Optional[int] = None
+    # vrai si le token compte au moins 4 000 porteurs. Le nombre exact
+    # est hors de portee au-dela de 6 000 ; la question utile est binaire.
+    foule: Optional[bool] = None
+    # part des 349 adresses de la cohorte presentes sur ce coin
+    cohorte: Optional[float] = None
     top_holder_pct: Optional[float] = None
     top10_pct: Optional[float] = None
     smart_holders: int = 0
@@ -120,3 +125,17 @@ class Pair:
         d["gmgn_url"] = self.gmgn_url
         d["dex_url"] = self.dex_url
         return d
+
+
+def hors_pump(mint: str) -> Optional[bool]:
+    """
+    Le jeton vient-il d'ailleurs que de pump.fun ?
+
+    L'adresse d'un mint pump.fun se termine par "pump" : la plateforme de
+    lancement se lit donc gratuitement, sans un seul appel reseau. Sur les
+    240 coins suivis, 8 des 11 gagnants venaient d'ailleurs, alors que 144
+    des 193 temoins etaient des pump.fun — 11,0 % de reussite contre 1,8 %.
+    """
+    if not mint:
+        return None
+    return not mint.lower().endswith("pump")

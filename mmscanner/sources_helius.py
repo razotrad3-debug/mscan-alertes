@@ -261,3 +261,34 @@ def smart_money_from_index(mint: str, index: dict) -> dict:
             noms.append(v["label"] or (addr[:4] + "…" + addr[-4:]))
     return {"count": len(adrs), "wallets": noms, "addresses": adrs}
 
+
+
+FOULE_SEUIL = 4000
+
+
+def foule(mint: str, seuil: int = FOULE_SEUIL) -> Optional[bool]:
+    """
+    Le token compte-t-il au moins `seuil` comptes porteurs ?
+
+    On ne cherche pas le nombre exact. Le compter demande de paginer tout le
+    token, et c'est ce qui rendait `holders` muet au-dessus de 6 000 — donc
+    sur les coins qui marchent. Or la question utile est binaire : la mesure
+    du 06/09 separe les gagnants a 4 000, pas au-dela, parce que l'outil qui
+    a produit cette mesure ne voyait pas plus haut non plus.
+
+    Une seule page suffit a repondre : celle qui se termine sur le seuil.
+    Pleine, il y a au moins `seuil` comptes.
+
+    Renvoie None si Helius ne repond pas. Une mesure absente ne doit jamais
+    passer pour un non.
+    """
+    limite = 1000
+    page = max(1, (seuil + limite - 1) // limite)
+    reste = seuil - (page - 1) * limite
+    res = _das("getTokenAccounts", {
+        "mint": mint, "limit": limite, "page": page,
+        "options": {"showZeroBalance": False},
+    })
+    if not isinstance(res, dict):
+        return None
+    return len(res.get("token_accounts") or []) >= reste

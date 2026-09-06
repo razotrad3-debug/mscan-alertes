@@ -47,6 +47,7 @@ jobs:
             insider_seen.json
             expansion_watch.json
             trendlines.json
+            journal_alertes.json
             paires_nees.json
             pool_cache.json
             holdings_cache.json
@@ -84,6 +85,7 @@ jobs:
             insider_seen.json
             expansion_watch.json
             trendlines.json
+            journal_alertes.json
             paires_nees.json
             pool_cache.json
             holdings_cache.json

@@ -15,6 +15,7 @@ STATE = {"pairs": [], "updated": 0, "scanning": False, "mode": "live", "error": 
          "followed_at": 0, "stale": False,
          "holdings": None}          # rempli au scan ; sinon relu sur disque
 _LOCK = threading.Lock()
+_APPRIS = {"at": 0.0}
 
 
 # ── formatage ──────────────────────────────────────────────────────
@@ -297,17 +298,42 @@ def create_app():
             today_rows = []
         counts["today"] = len(today_rows)
 
+        # Win : ce qu'on a repere bas et qui a fait au moins x5. Sert
+        # autant a verifier le travail qu'a nourrir l'apprentissage —
+        # c'est la liste que la reconstruction de la cohorte utilise.
+        try:
+            from mmscanner import journal as jmod
+            win_rows = jmod.gagnants()
+        except Exception as e:
+            print(f"[win] {e}")
+            win_rows = []
+        counts["win"] = len(win_rows)
+
         # Pepites : les coins qui cochent le modele mesure. Le modele ne
         # porte que sur ce qui a ete verifie ; la note du radar sert a
         # ORDONNER la liste, pas a y entrer — on ne melange pas ce qui est
         # mesure et ce qui est suppose.
         try:
             from mmscanner import pepites as pep
+            # on relit la cohorte ici plutot que de croire ce que le scan a
+            # pose : un cache ecrit par une version precedente peut porter
+            # des valeurs perimees, et la lecture ne coute qu'un acces
+            # disque mis en cache.
+            try:
+                from mmscanner import cohorte as _coh3
+                _ic = _coh3.index()
+                for q in ranked:
+                    q.cohorte = _ic.get(q.mint)
+            except Exception as e:
+                print(f"[cohorte] {e}")
             marques = set(pep.gagnants())
             pepite_rows = []
             for q in ranked:
                 o, poss, pourquoi = pep.noter(q)
-                if not poss or o / poss < 0.75:
+                # on demande au modele s'il retient, au lieu de recopier ici
+                # un seuil : la page avait garde 0,75 alors que le modele est
+                # passe a 0,60, et elle ecartait des coins qu'il retenait.
+                if not poss or not pep.est_pepite(q):
                     continue
                 pepite_rows.append({
                     "mint": q.mint, "symbol": q.symbol, "chain": q.chain or "solana",
@@ -317,15 +343,36 @@ def create_app():
                     "points": o, "possibles": poss, "pourquoi": pourquoi,
                     "top10": q.top10_pct,
                     "marque": q.mint in marques,
+                    # au-dela de la moitie de la cohorte, on n'est plus sur un
+                    # signal general mais sur un groupe de coins qui partagent
+                    # 60 % de leurs porteurs : un seul operateur. On le signale
+                    # sans en faire une categorie, parce que 5 lancements du
+                    # meme acteur ne sont pas 5 preuves.
+                    "cluster": (q.cohorte or 0) >= 0.53,
                 })
             pepite_rows.sort(key=lambda c: (config.grade_rank(c["grade"]),
                                             c["points"] / max(1, c["possibles"]),
                                             c.get("mc") or 0), reverse=True)
             pep_etat = pep.etat()
+            # sur quoi la categorie a pu se prononcer. Un onglet vide qui
+            # n'explique pas pourquoi il est vide fait croire a une panne.
+            try:
+                from mmscanner import cohorte as _coh2
+                pep_etat["mesures"] = sum(
+                    1 for q in ranked if getattr(q, "cohorte", None) is not None)
+                pep_etat["total"] = len(ranked)
+                pep_etat["photos"] = _coh2.couverture().get(
+                    "coins_photographies", 0)
+            except Exception:
+                pass
             # de quoi poser un badge sur les lignes ordinaires : on voit
             # qu'un coin est retenu sans avoir a changer de filtre
-            pot_marques = {c["mint"]: f"{c['points']}/{c['possibles']}"
-                           for c in pepite_rows}
+            pot_marques = {
+                c["mint"]: (f"{c['points']}/{c['possibles']}"
+                            + (" — groupe d'un meme operateur, a lire comme "
+                               "une observation et non comme une preuve"
+                               if c["cluster"] else ""))
+                for c in pepite_rows}
         except Exception:
             pepite_rows, pep_etat, pot_marques = [], {}, {}
         counts["pepite"] = len(pepite_rows)
@@ -333,7 +380,7 @@ def create_app():
         return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra,
                                       veille=veille, counts=counts,
                                       tl_mints=tl_mints, tl_rows=tl_rows, tl_marques=tl_marques,
-                                      today_rows=today_rows, pepite_rows=pepite_rows, pep_etat=pep_etat, pot_marques=pot_marques,
+                                      today_rows=today_rows, win_rows=win_rows, pepite_rows=pepite_rows, pep_etat=pep_etat, pot_marques=pot_marques,
                                       chains=chains, chainmeta=config.CHAIN_META,
                                       meta=meta, active="radar",
                                       prog=meta.get("progress", {}),
@@ -751,8 +798,9 @@ def scan_loop(demo: bool = False):
             # photos de soldes -> alimente le Whale Flow (méthode sun-flow)
             try:
                 from mmscanner import holder_flow
-                n = sum(1 for p in pairs[:config.SMARTMONEY_TOP_N]
-                        if holder_flow.snapshot(p.mint, p.price_usd))
+                n = sum(1 for p in pairs[:config.PHOTOS_TOP_N]
+                        if holder_flow.snapshot(p.mint, p.price_usd,
+                                                symbol=p.symbol or ""))
                 if n:
                     print(f"[flow] {n} photos de soldes prises")
             except Exception as e:
@@ -784,6 +832,25 @@ def scan_loop(demo: bool = False):
                 hmod.lancer_en_fond(sur_fin=_garder)
             except Exception as e:
                 print(f"[holdings] {e}")
+
+            # ce que les alertes sont devenues. Sans cet appel, le journal
+            # ne se remplissait jamais cote application : il n'etait suivi
+            # que par bot_server, cote cloud.
+            try:
+                from mmscanner import journal as _jm
+                _jm.suivre(log=lambda *a: None)
+            except Exception as e:
+                print(f"[journal] {e}")
+
+            try:
+                if time.time() - _APPRIS["at"] > 3600:
+                    _APPRIS["at"] = time.time()
+                    import threading as _th
+                    from mmscanner import pepites as _pep
+
+                    _th.Thread(target=lambda: _pep.apprendre(), daemon=True).start()
+            except Exception as e:
+                print(f"[pepites] {e}")
 
             # veille d'expansion : on arme les nouvelles paires et on suit
             # leur etat pour l'afficher. L'envoi reste au cloud.
@@ -1460,6 +1527,10 @@ function applyFilter(f){
   var pep=it.getAttribute('data-peponly')==='1';
   if(f!=='pepite'&&pep){it.hidden=true;return;}
   if(f==='pepite'&&!pep){it.hidden=true;return;}
+  // les coups gagnants : meme principe, onglet dedie
+  var wno=it.getAttribute('data-winonly')==='1';
+  if(f!=='win'&&wno){it.hidden=true;return;}
+  if(f==='win'&&!wno){it.hidden=true;return;}
   if(f==='veille')    ok = vl;
   else if(f==='ligne')ok = true;
   else if(f==='conv') ok = w>=2;
@@ -1467,6 +1538,7 @@ function applyFilter(f){
   else if(f==='wallet')ok = w>=1;
   else if(f==='today')ok = it.getAttribute('data-today')==='1';
   else if(f==='pepite')ok = true;
+  else if(f==='win')ok = true;
   it.hidden=!ok; if(ok)shown++;});
  var n=document.getElementById('nores'); if(n)n.hidden=shown>0;
  var r=document.getElementById('rows'); if(r)r.hidden=shown===0;}
@@ -1645,13 +1717,14 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip" data-f="conv">Convergence <i>{{ counts.conv }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
     <button class="chip" data-f="today">Today <i>{{ counts.today }}</i></button>
+    <button class="chip" data-f="win">Win <i>{{ counts.win }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
     <button class="ic toutdex" id="toutdex" title="Ouvrir tous les charts affiches">{{ icon('trend') }}</button>
   </div>
   <script>window.TL_MARQUES={{ tl_marques|tojson }};
           window.POTENTIEL={{ pot_marques|tojson }};</script>
 
-  {% if pairs or extra or veille or tl_rows %}
+  {% if pairs or extra or veille or tl_rows or win_rows %}
   <div class="rows" id="rows">
     {% for p in pairs %}{{ row(p) }}{% endfor %}
     {% for c in extra %}
@@ -1730,6 +1803,37 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
       </div>
     </div>
     {% endfor %}
+    {% for c in win_rows %}
+    <div class="item" data-mint="{{ c.mint }}" data-grade="{{ c.grade or '—' }}"
+         data-phase="—" data-chain="{{ c.chain or 'solana' }}"
+         data-wallets="0" data-winonly="1">
+      <div class="r" style="grid-template-columns:74px minmax(0,1fr) 96px auto">
+        <div class="gr" style="--gc:#4ade80;color:#4ade80;font-size:11px">x{{ '%.1f'|format(c.mult) }}</div>
+        <div class="id">
+          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}</span>{% endif %}</div>
+          <div class="s">repéré à {{ c.mc0|fmt }}{% if c.at %} · {{ c.at|ago }}{% endif %} · {{ 'alerte envoyée' if c.source == 'alerte' else 'vu au radar' }}</div>
+        </div>
+        <div class="val"><div class="m num">{{ c.haut|fmt }}</div>
+          <div class="c num">plus haut</div></div>
+        <div class="acts">
+          <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
+          <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% if pep_etat %}
+    <div class="item" data-mint="" data-grade="—" data-phase="—"
+         data-chain="solana" data-wallets="0" data-peponly="1">
+      <div class="r" style="grid-template-columns:52px minmax(0,1fr)">
+        <div class="gr" style="--gc:var(--muted);color:var(--muted);font-size:8px">ÉTAT</div>
+        <div class="id">
+          <div class="n" style="color:var(--muted)">{{ pep_etat.mesures or 0 }} coin(s) mesurable(s) sur {{ pep_etat.total or 0 }}</div>
+          <div class="s">la cohorte ne se lit que sur les coins photographiés ({{ pep_etat.photos or 0 }} en archive) · {{ pep_etat.source }}</div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
     {% for c in pepite_rows %}
     <div class="item" data-mint="{{ c.mint }}" data-grade="{{ c.grade or '—' }}"
          data-phase="{{ c.phase or '—' }}" data-chain="{{ c.chain or 'solana' }}"

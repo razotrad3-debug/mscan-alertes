@@ -162,6 +162,13 @@ INCLUDE_TRENDING  = True
 ENRICH_TOP_N      = 28         # enrichissement lourd (OHLCV/RSI/wallets) sur les N meilleurs
 WATCHLIST_MAX     = 60         # wallets auto-decouverts gardes (les mieux notes)
 SMARTMONEY_TOP_N  = 25         # check smart-wallets sur les N meilleurs (coûteux en requêtes)
+# Photos de detenteurs : longtemps collees a SMARTMONEY_TOP_N, alors que les
+# deux n'ont pas le meme cout. Le check smart-money interroge un wallet par
+# coin ; une photo, c'est 4 appels DAS au plus, et une seule toutes les 30 min
+# par coin. Mesure faite : 161 photos en 24 h, soit ~670 appels par jour a 25
+# coins. A 60 on reste sous 1 600 — et la cohorte passe de 10 % a ~30 % du
+# radar, ce qui est la seule facon de rendre la categorie Potentiel utile.
+PHOTOS_TOP_N      = 60         # coins photographies par scan (detenteurs)
 
 # ── Seuils de scoring (les piliers de la méthode) ─────────
 VOL24_MONSTER   = 1_000_000    # "volume monster"

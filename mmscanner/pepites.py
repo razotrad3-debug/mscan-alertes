@@ -8,8 +8,8 @@ elle repose.
 
 Trois etats :
 
-  PROVISOIRE   le modele vient des mesures du 06/09 (15 gagnants sur 106
-               coins photographies). Faible, et annonce comme tel.
+  PROVISOIRE   le modele vient des mesures du 06/09 (11 gagnants x5+ sur
+               116 coins suivis). Faible, et annonce comme tel.
   APPRIS       le journal a assez de gagnants : les criteres sont recalcules
                sur les 32 mesures que le radar fige a chaque alerte, avec
                groupe temoin et test de bruit. Seuls ceux qui depassent le
@@ -38,31 +38,59 @@ MULTIPLE_GAGNANT = 3.0   # ce qu'on appelle un gagnant, faute de mieux
 MULTIPLE_PERDANT = 1.3
 
 
-# ── modele provisoire ──────────────────────────────────────────────
-# Tire des mesures du 06/09 sur 106 coins photographies. Ce sont les seules
-# tendances qui allaient dans le bon sens ; aucune n'etait solide, et le
-# libelle de la categorie le rappelle.
+# --- modele provisoire ---------------------------------------------
+# Refait le 06/09 sur 240 coins suivis, dont 11 ont fait x5 ou mieux depuis
+# la premiere fois qu'on les a vus. Base de reference : 4,6 %.
+#
+# La regle tient en une ligne : la cohorte de bots est-elle passee ?
+#
+#     cohorte >= 1,1 %   ->  25 coins, 8 gagnants, 32,0 %   (7x la base)
+#
+# Elle a ete choisie non pas parce qu'elle est la plus precise, mais parce
+# qu'elle est la seule qui ait SURVECU. En refaisant toute la recherche en
+# retirant chaque gagnant a tour de role, on retombe sur elle onze fois sur
+# onze. Les regles plus precises trouvees en chemin (jusqu'a 54 %) ne
+# rattrapaient aucun gagnant qu'elles n'avaient pas deja vu : elles
+# memorisaient.
+#
+# Ce qui a ete ecarte en route, et pourquoi :
+#   - "supply detenue" : ne mesurait que le plafond de pagination a 4 000.
+#   - "nb de photos"   : un gagnant survit plus longtemps, donc il est
+#                        photographie plus souvent. Artefact.
+#   - "departs/h"      : le meme signal que la cohorte, recompte.
+#   - la regle a 5 coins et 0 perdant : ces six coins partagent 60 % de
+#                        leurs porteurs entre eux. C'est un seul operateur
+#                        vu six fois, pas cinq preuves.
 PROVISOIRE = {
-    "_source": "mesure du 06/09 sur 106 coins, 15 gagnants — tendances faibles",
-    "_gagnants": 15,
+    "_source": "mesure du 06/09 sur 240 coins, 11 gagnants x5+ — 32 % contre 4,6 % de base",
+    "_gagnants": 11,
     "criteres": [
+        {"mesure": "cohorte", "sens": "au-dessus", "seuil": 3.5 / 349,
+         "poids": 3, "indispensable": True, "requis": True,
+         "court": "cohorte presente",
+         "pourquoi": "au moins quatre des 349 adresses de bots deja la. "
+                     "25 coins concernes sur 240, 8 gagnants : 32 % contre "
+                     "4,6 % de base"},
+        {"mesure": "hors_pump", "sens": "vrai", "poids": 1,
+         "court": "hors pump.fun",
+         "pourquoi": "8 des 11 gagnants venaient d'ailleurs, quand 144 des "
+                     "193 temoins etaient des pump.fun (11,0 % contre 1,8 %)"},
         {"mesure": "mc", "sens": "entre", "bas": 700_000, "haut": 1_500_000,
-         "poids": 2, "court": "tranche 700K-1,5M",
-         "pourquoi": "26 % de reussite dans cette tranche contre 14 % ailleurs"},
-        {"mesure": "mc", "sens": "au-dessus", "seuil": 100_000,
-         "poids": 2, "court": "au-dessus de 100K",
-         "pourquoi": "aucun gagnant sur 10 coins vus sous 100 K$"},
-        {"mesure": "top10_pct", "sens": "en-dessous", "seuil": 0.20,
-         "poids": 1, "court": "top10 disperse",
-         "pourquoi": "les gagnants sont moins concentres au sommet"},
+         "poids": 1, "court": "tranche 700K-1,5M",
+         "pourquoi": "gagnants vus a 1,10 M$ en median contre 637 K$ pour "
+                     "les temoins — sous le seuil de bruit (z +1,4)"},
     ],
 }
-# Ce qui a ete mesure mais qu'on ne peut PAS appliquer : les gagnants mettent
-# 11 h a poser leur premier sommet contre 3 h aux perdants (AUC 0,745, la
-# mesure la plus solide du 06/09). Elle porte sur les 48 premieres heures de
-# la pool et n'a rien a voir avec l'age du coin — la confondre avec age_hours
-# donnerait des points a n'importe quel jeton de plusieurs jours. Elle
-# reviendra quand le journal permettra de la calculer sur du direct.
+# Deux reserves a dire franchement :
+#   - Onze gagnants sur 17 jours, c'est peu. Toute recherche fine sur cette
+#     matiere trouvera des motifs qui n'existent pas ; c'est arrive quatre
+#     fois dans la journee. La regle ci-dessus est celle qui a resiste, pas
+#     une verite etablie.
+#   - La liste d'adresses est datee. Ces bots changeront d'adresses ;
+#     apprendre() doit la reconstruire des que le journal aura de quoi.
+# Toujours pas applicable : les gagnants mettent 11 h a poser leur premier
+# sommet contre 3 h aux perdants. Cela porte sur les 48 premieres heures de
+# la pool et non sur l'age du coin.
 
 
 def _lire(chemin, defaut):
@@ -127,6 +155,14 @@ def marquer(mint: str, symbol: str = "", chain: str = "",
 
 # ── notation d'un coin ─────────────────────────────────────────────
 def _valeur(p, mesure):
+    if mesure == "hors_pump":
+        # se deduit de l'adresse : jamais absente, jamais a rafraichir
+        if isinstance(p, dict) and p.get("hors_pump") is not None:
+            return p["hors_pump"]
+        from mmscanner.model import hors_pump
+        mint = (p.get("mint") if isinstance(p, dict)
+                else getattr(p, "mint", None))
+        return hors_pump(mint)
     if isinstance(p, dict):
         return p.get(mesure)
     equiv = {"mc": "market_cap", "liq": "liquidity_usd", "age_h": "age_hours"}
@@ -137,32 +173,56 @@ def noter(p) -> Tuple[int, int, List[str]]:
     """
     Points obtenus / points possibles / ce qui a compte.
 
-    Une mesure absente ne compte ni pour ni contre : on ne devine pas.
+    Une mesure absente ne compte ni pour ni contre : on ne devine pas. Mais
+    si c'est la mesure sur laquelle le modele repose qui manque, on ne note
+    pas du tout. Sans ce garde-fou, un coin serait declare "potentiel" pour
+    avoir coche le seul critere faible encore mesurable, et le score affiche
+    dirait "1/1" la ou on ne sait rien.
     """
     m = modele()
     obtenus = possibles = 0
     retenus = []
+    bloque = False
     for c in m.get("criteres", []):
         v = _valeur(p, c["mesure"])
         if v is None:
+            if c.get("indispensable"):
+                return 0, 0, []
             continue
         poids = c.get("poids", 1)
         possibles += poids
         ok = False
-        if c["sens"] == "entre":
+        sens = c["sens"]
+        if sens == "entre":
             ok = c["bas"] <= v <= c["haut"]
-        elif c["sens"] == "au-dessus":
+        elif sens == "au-dessus":
             ok = v >= c["seuil"]
-        elif c["sens"] == "en-dessous":
+        elif sens == "en-dessous":
             ok = v <= c["seuil"]
+        elif sens == "vrai":
+            ok = bool(v)
+        elif sens == "faux":
+            ok = not v
         if ok:
             obtenus += poids
             retenus.append(c.get("court") or c.get("pourquoi") or c["mesure"])
+        elif c.get("requis"):
+            # le critere sur lequel repose la categorie n'est pas rempli :
+            # les points des bonus ne doivent pas donner l'illusion contraire
+            bloque = True
+    if bloque:
+        return 0, possibles, []
     return obtenus, possibles, retenus
 
 
-def est_pepite(p, part: float = 0.75) -> bool:
-    """Retient les coins qui cochent au moins trois quarts du modele."""
+def est_pepite(p, part: float = 0.6) -> bool:
+    """
+    Retient les coins qui remplissent le critere requis.
+
+    Le seuil est a 0,6 et non 0,75 parce que le critere requis pese 3
+    points sur 5 : le remplir seul suffit a entrer, les deux bonus ne
+    servent qu'a classer.
+    """
     o, poss, _ = noter(p)
     return poss > 0 and o / poss >= part
 
@@ -185,6 +245,17 @@ def apprendre(log=print) -> dict:
     """
     from mmscanner import journal
 
+    # la cohorte se refait sur les photos de soldes, pas sur le journal :
+    # ce sont deux matieres differentes, et elle a ses propres garde-fous.
+    # Elle refuse d'elle-meme tant qu'elle n'a pas de quoi faire mieux que
+    # la liste en place.
+    try:
+        from mmscanner import cohorte
+        etat_coh = cohorte.reconstruire(log=log)
+    except Exception as e:
+        log(f"[cohorte] {e}")
+        etat_coh = {}
+
     j = journal._lire() or journal.charger_partage()
     marques = set(gagnants())
     G, P = [], []
@@ -199,7 +270,8 @@ def apprendre(log=print) -> dict:
         elif mult < MULTIPLE_PERDANT:
             P.append(depart)
 
-    etat = {"gagnants": len(G), "perdants": len(P), "quand": time.time()}
+    etat = {"gagnants": len(G), "perdants": len(P), "quand": time.time(),
+            "cohorte": etat_coh.get("verdict", "")}
     if len(G) < MIN_GAGNANTS or len(P) < MIN_GAGNANTS:
         etat["verdict"] = (f"en apprentissage : {len(G)} gagnants et {len(P)} "
                            f"temoins, il en faut {MIN_GAGNANTS} de chaque")
@@ -223,6 +295,15 @@ def apprendre(log=print) -> dict:
         ec = statistics.pstdev(alea) or 1e-9
         z = (a - 0.5) / ec
         if abs(z) < Z_MINI:
+            continue
+        if all(isinstance(x, bool) for x in g + p):
+            # une mesure oui/non : un seuil numerique n'aurait aucun sens
+            criteres.append({
+                "mesure": c, "sens": "vrai" if a > 0.5 else "faux",
+                "poids": 2 if abs(z) >= 2.5 else 1,
+                "court": c if a > 0.5 else "pas " + c,
+                "pourquoi": f"{c} : AUC {a:.2f}, z {z:+.1f} sur {len(g)} gagnants",
+            })
             continue
         mediane = statistics.median(p)
         criteres.append({
