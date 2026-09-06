@@ -169,9 +169,14 @@ def publier_jour(log=print) -> bool:
     """
     try:
         from mmscanner import partage
+        coins = alertes_du_jour()
         return partage.publier("alertes_jour.enc",
                                {"jour": time.strftime("%Y-%m-%d"),
-                                "coins": alertes_du_jour()}, log=log)
+                                "coins": coins,
+                                # un fichier qui existe et dit "zero" prouve
+                                # que le chemin fonctionne ; un fichier absent
+                                # ne prouve rien
+                                "envoyees": len(coins)}, log=log)
     except Exception:
         return False
 

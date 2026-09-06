@@ -155,6 +155,7 @@ def main():
     _naissances = {"at": 0.0}
 
     _apprentissage = {"at": 0.0}
+    _liste_jour = {"at": 0.0}
 
     def _veille():
         try:
@@ -190,6 +191,15 @@ def main():
                 journal.suivre()
             except Exception as e:
                 print(f"[journal] {e}")
+            # la liste du jour part meme vide : sans ca, on ne distingue pas
+            # "aucune alerte aujourd'hui" de "la publication est cassee"
+            try:
+                if time.time() - _liste_jour["at"] > 600:
+                    _liste_jour["at"] = time.time()
+                    from mmscanner import telegram_alerts as tgj
+                    tgj.publier_jour()
+            except Exception as e:
+                print(f"[journee] {e}")
             # le modele des pepites se recalcule sur le journal, une fois
             # par heure : inutile plus souvent, le journal grossit lentement
             try:
