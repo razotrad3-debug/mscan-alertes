@@ -8,7 +8,7 @@ Différence avec discover_wallets :
 Pour chaque adresse suivie, on lit ses achats récents on-chain (Helius) et on
 affiche les coins où elle vient d'entrer, avec le lien vers le chart / l'analyse.
 
-Signal fort (méthode MikeMike) : quand PLUSIEURS adresses suivies entrent sur
+Signal fort (méthode MemeScan) : quand PLUSIEURS adresses suivies entrent sur
 le MÊME coin dans une fenêtre courte -> convergence, à regarder en priorité.
 
 Fichier : followed_wallets.txt   (une adresse par ligne + label optionnel)

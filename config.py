@@ -1,5 +1,5 @@
 """
-Configuration centrale du scanner MikeMike.
+Configuration centrale du scanner MemeScan.
 Tous les seuils viennent directement de la méthodologie (voir le cours PDF).
 Modifie ici sans toucher au code.
 """
@@ -64,7 +64,7 @@ CHAIN_META = {
     "base":     {"label": "Base",      "color": "#4FA9FF"},
 }
 
-# ── Filtres MikeMike (ses params DexScreener) ─────────────
+# ── Filtres MemeScan (parametres DexScreener) ─────────────
 MIN_LIQUIDITY_USD = 50_000     # minLiq (coins établis)
 # Un coin jeune très actif peut avoir moins de liquidité mais un énorme turnover :
 # on l'accepte si liq >= MIN_LIQ_EARLY ET vol24h >= MIN_VOL_EARLY.

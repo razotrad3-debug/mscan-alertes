@@ -264,8 +264,9 @@ def create_app():
                 tl_rows.append(base)
             tl_rows.sort(key=lambda c: (config.grade_rank(c["grade"]) if c["grade"] else -1,
                                         c.get("mc") or 0), reverse=True)
+            tl_marques = {c["mint"]: c["marque"] for c in tl_rows}
         except Exception:
-            tl_mints, tl_rows = [], []
+            tl_mints, tl_rows, tl_marques = [], [], {}
         counts["ligne"] = len(tl_mints)
 
         # ce qui est parti sur Telegram aujourd'hui. C'est le cloud qui
@@ -300,7 +301,8 @@ def create_app():
 
         return render_template_string(PAGE_RADAR, pairs=ranked, extra=extra,
                                       veille=veille, counts=counts,
-                                      tl_mints=tl_mints, tl_rows=tl_rows, today_rows=today_rows,
+                                      tl_mints=tl_mints, tl_rows=tl_rows, tl_marques=tl_marques,
+                                      today_rows=today_rows,
                                       chains=chains, chainmeta=config.CHAIN_META,
                                       meta=meta, active="radar",
                                       prog=meta.get("progress", {}),
@@ -1405,12 +1407,12 @@ function applyFilter(f){
 // les coins deja au classement qui portent une de tes lignes : on les marque
 // ici plutot que dans le gabarit, pour ne pas toucher au rendu des lignes
 (function(){try{
- (window.TL_MINTS||[]).forEach(function(m){
+ Object.keys(window.TL_MARQUES||{}).forEach(function(m){
   document.querySelectorAll('#rows .item[data-mint="'+m+'"]').forEach(function(it){
    if(it.getAttribute('data-tlonly')==='1')return;
    var n=it.querySelector('.id .n'); if(!n||n.querySelector('.tltag'))return;
    var t=document.createElement('span');
-   t.className='tag tltag'; t.textContent='TRENDLINE';
+   t.className='tag tltag'; t.textContent=window.TL_MARQUES[m]||'TRACE';
    t.style.color='#ff9f45'; t.style.borderColor='rgba(255,159,69,.45)';
    n.appendChild(document.createTextNode(' ')); n.appendChild(t);});});
 }catch(_){}})();
@@ -1552,7 +1554,7 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
     <button class="ic toutdex" id="toutdex" title="Ouvrir tous les charts affiches">{{ icon('trend') }}</button>
   </div>
-  <script>window.TL_MINTS={{ tl_mints|tojson }};</script>
+  <script>window.TL_MARQUES={{ tl_marques|tojson }};</script>
 
   {% if pairs or extra or veille or tl_rows %}
   <div class="rows" id="rows">

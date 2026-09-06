@@ -1,5 +1,5 @@
 """
-Découverte AUTOMATIQUE de smart wallets — la méthode MikeMike (cours, Module 07) :
+Découverte AUTOMATIQUE de smart wallets — la méthode MemeScan (cours, Module 07) :
 
   1) Prendre les coins qui ont RÉCEMMENT PERCÉ (gros move, jeunes, liquides).
   2) Pour chacun, lire les EARLY BUYERS on-chain (les N premiers acheteurs).

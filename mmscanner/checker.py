@@ -1,6 +1,6 @@
 """
 Checker on-demand : on donne un contract address (mint), il renvoie l'analyse
-complète (grade, phase, intel MikeMike, RSI, wallets) + le whale flow.
+complète (grade, phase, intel MemeScan, RSI, wallets) + le whale flow.
 Utilisé par la barre de recherche du dashboard.
 """
 import time
@@ -70,7 +70,7 @@ def check(mint: str, smart_wallets: Optional[List[str]] = None,
         p.smart_names = sm["wallets"]
         from .engine import attach_wallet_detail
         attach_wallet_detail(p, sm.get("addresses"), sm.get("wallets"))
-        # accumulation récente (méthode MikeMike)
+        # accumulation récente (méthode MemeScan)
         acc = discover_wallets.accumulating_now(mint, sw) if sw else {"count": 0}
         p.smart_accumulating = acc.get("count", 0)
         p.wallets_available = True

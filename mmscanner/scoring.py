@@ -1,5 +1,5 @@
 """
-Le score /12 MikeMike. Chaque critère = 1 point, chacun adossé à un pilier de la
+Le score /12 MemeScan. Chaque critère = 1 point, chacun adossé à un pilier de la
 méthode (voir le cours PDF). La grade (A+/A/A-…) est dérivée du score.
 
 Sans clé Helius, les 2 critères wallet (holders + smart-money) valent 0 :

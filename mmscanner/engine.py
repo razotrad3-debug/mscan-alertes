@@ -139,7 +139,7 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
     log(f"[discover] {len(raw)} pools bruts  ({time.time()-t0:.0f}s)")
     _p(22, "Filtrage", f"{len(raw)} pools")
 
-    # ── préfiltre (les filtres MikeMike) ─────────────────
+    # ── préfiltre (les filtres MemeScan) ─────────────────
     cands = []
     for r in raw:
         if not _liquidity_ok(r["liquidity_usd"], r["vol_h24"]):

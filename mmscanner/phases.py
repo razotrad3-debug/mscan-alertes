@@ -1,6 +1,6 @@
 """
 Détection de phase + génération de l'intel (entry / POI / T1-T3 / cut),
-calquées sur la logique du scanner prntwrx et la méthode MikeMike (retest strategy).
+calquées sur la logique du scanner prntwrx et la méthode MemeScan (retest strategy).
 """
 from typing import Dict
 from .model import Pair

@@ -1,5 +1,5 @@
 """
-Point d'entrée du scanner MikeMike.
+Point d'entrée du scanner MemeScan.
 
   python run.py --demo     # dashboard avec données d'exemple (sans clé ni réseau)
   python run.py --once     # un seul scan live, affiché dans le terminal
@@ -34,7 +34,7 @@ def print_table(pairs):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="MikeMike SOL scanner")
+    ap = argparse.ArgumentParser(description="MemeScan SOL scanner")
     ap.add_argument("--demo", action="store_true", help="données d'exemple, sans réseau")
     ap.add_argument("--once", action="store_true", help="un scan live puis stop")
     ap.add_argument("--no-web", action="store_true", help="pas de dashboard (avec --once ou boucle terminal)")
@@ -72,7 +72,7 @@ def main():
             except Exception:
                 pass
         threading.Thread(target=_open, daemon=True).start()
-    print("\n== MikeMike Scanner ==")
+    print("\n== MemeScan Scanner ==")
     print(f"  Dashboard : {url}")
     print(f"  Mode      : {'DEMO' if demo else 'LIVE'}")
     print(f"  Helius    : {'oui' if config.HELIUS_API_KEY else 'NON (wallets off)'}")

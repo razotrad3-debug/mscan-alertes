@@ -1,4 +1,4 @@
-# MSCAN — scanner memecoin Solana (méthode MikeMike)
+# MSCAN — scanner memecoin Solana (méthode MemeScan)
 
 Trouve les paires du moment, les **note sur 12**, les **grade A+ / A / A- / B+ …**,
 détecte la **phase** (Early / Running / Compressing / Retest / Exhausted) et sort
@@ -224,6 +224,6 @@ flow_snapshots/       → photos de soldes (créé automatiquement)
 - La concentration des holders n'est calculée que si le token a **moins de ~4000 holders**
   (au-delà, on renvoie « — » plutôt qu'un chiffre faux).
 - Le scanner **ne trade pas** : il trouve, filtre, note et alerte. La décision reste
-  manuelle — comme MikeMike : les bots servent le funnel, tu décides.
+  manuelle : les bots servent le funnel, tu décides.
 
 ⚠️ Aide à la décision, pas un conseil financier. Les memecoins peuvent aller à zéro.

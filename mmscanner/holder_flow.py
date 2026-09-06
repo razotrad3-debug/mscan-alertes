@@ -197,7 +197,7 @@ def compute(mint: str, price_usd: float = None) -> dict:
 
 
 def _signal(tiers: dict, covered: dict) -> str:
-    """Lecture façon MikeMike : qui accumule, qui distribue."""
+    """Lecture façon MemeScan : qui accumule, qui distribue."""
     win = "24h" if covered.get("24h") else ("recent" if covered.get("recent") else None)
     if not win:
         return ""

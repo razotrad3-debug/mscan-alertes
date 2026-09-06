@@ -3,7 +3,7 @@ Mémoire des smart wallets : qui ils sont, et SUR QUOI ils ont été early.
 
 Chaque wallet retenu garde la trace des coins pumpés sur lesquels il est entré
 tôt — c'est la justification (le "pourquoi c'est un smart wallet") exigée par la
-méthode MikeMike : on ne suit pas un wallet parce qu'il est riche, mais parce
+méthode MemeScan : on ne suit pas un wallet parce qu'il est riche, mais parce
 qu'il est REPETITIVEMENT early avant le move.
 
 Fichier : smart_wallets_data.json
@@ -63,7 +63,7 @@ def record(data: Dict, wallet: str, coin: dict, entry_rank: int) -> None:
 
 def grade_wallet(count: int, avg_pump: float, avg_rank: float, last_seen: float) -> tuple:
     """
-    Note un wallet /10 selon la logique MikeMike : ce qui compte n'est pas
+    Note un wallet /10 selon la logique MemeScan : ce qui compte n'est pas
     la taille du portefeuille, c'est la REPETITION et la PRECOCITE des entrees.
 
       · recurrence  — sur combien de pumps il etait deja dedans
@@ -143,7 +143,7 @@ def export_watchlist(min_coins: int = 2, top_n: int = None) -> int:
     On plafonne volontairement : chaque wallet exporte coute une requete Helius
     PAR coin analyse. Une liste de 289 wallets, c'etait 7 000 requetes par scan
     pour un signal qui vient de la vingtaine de tetes de liste. La methode
-    MikeMike suit les wallets recurrents, pas tous les wallets.
+    MemeScan suit les wallets recurrents, pas tous les wallets.
     """
     if top_n is None:
         top_n = getattr(config, "WATCHLIST_MAX", 60)
