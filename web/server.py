@@ -251,6 +251,16 @@ def create_app():
                                 # au demarrage le cache de prix est froid, et un
                                 # zero affiche se lirait comme un coin mort
                                 mc=x.get("mc"), chg_h1=x.get("chg_h1"))
+                # le marqueur nomme ce qui est trace, pas la categorie :
+                # une fib seule n'est pas une trendline
+                quoi = []
+                if base["nt"]:
+                    quoi.append("TRENDLINE")
+                if base["nf"]:
+                    quoi.append("FIB")
+                if base["npo"]:
+                    quoi.append("POI")
+                base["marque"] = " + ".join(quoi) or "TRACE"
                 tl_rows.append(base)
             tl_rows.sort(key=lambda c: (config.grade_rank(c["grade"]) if c["grade"] else -1,
                                         c.get("mc") or 0), reverse=True)
@@ -1587,8 +1597,9 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <div class="item" data-mint="{{ c.mint }}" data-grade="{{ c.grade or '—' }}"
          data-phase="{{ c.phase or '—' }}" data-chain="{{ c.chain or 'solana' }}"
          data-wallets="{{ c.wallets or 0 }}" data-tlrow="1" data-tlonly="1">
-      <div class="r" style="grid-template-columns:74px minmax(0,1fr) 96px auto">
-        <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:8px;letter-spacing:.06em">TRENDLINE</div>
+      <div class="r" style="grid-template-columns:104px minmax(0,1fr) 96px auto">
+        <div class="gr" style="--gc:#ff9f45;color:#ff9f45;font-size:8px;letter-spacing:.04em;
+             white-space:normal;line-height:1.3;text-align:center">{{ c.marque }}</div>
         <div class="id">
           <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }} {{ c.score }}/{{ c.max_score }}</span>{% endif %}</div>
           <div class="s">{% if c.nt %}{{ c.nt }} trendline{{ 's' if c.nt > 1 }} tracée{{ 's' if c.nt > 1 }}{% endif %}{% if c.nt and c.nf %} · {% endif %}{% if c.nf %}{{ c.nf }} fib tracée{{ 's' if c.nf > 1 }}{% endif %}{% if (c.nt or c.nf) and c.npo %} · {% endif %}{% if c.npo %}{{ c.npo }} POI{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
