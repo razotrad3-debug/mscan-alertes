@@ -169,8 +169,6 @@ def create_app():
             "conv": sum(1 for p in ranked if (p.smart_holders or 0) >= 2) + len(extra),
             "top": sum(1 for p in ranked if p.grade in ("A+", "A", "A-")),
             "wallet": sum(1 for p in ranked if (p.smart_holders or 0) >= 1),
-            "running": sum(1 for p in ranked if p.phase == "Running"),
-            "early": sum(1 for p in ranked if p.phase == "Early"),
             "retest": sum(1 for p in ranked if p.phase == "Retest"),
         }
         # coins sous veille d'expansion : reperes avant d'etre notes
@@ -1463,8 +1461,6 @@ function applyFilter(f){
   else if(f==='conv') ok = w>=2;
   else if(f==='top')  ok = (g==='A+'||g==='A'||g==='A-');
   else if(f==='wallet')ok = w>=1;
-  else if(f==='running')  ok = ph==='Running';
-  else if(f==='early')    ok = ph==='Early';
   else if(f==='today')ok = it.getAttribute('data-today')==='1';
   else if(f==='pepite')ok = true;
   it.hidden=!ok; if(ok)shown++;});
@@ -1632,8 +1628,6 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip pep" data-f="pepite">Pépite <i>{{ counts.pepite }}</i></button>
     <button class="chip" data-f="conv">Convergence <i>{{ counts.conv }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
-    <button class="chip" data-f="early">Jeune <i>{{ counts.early }}</i></button>
-    <button class="chip" data-f="running">Running <i>{{ counts.running }}</i></button>
     <button class="chip" data-f="today">Today <i>{{ counts.today }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
     <button class="ic toutdex" id="toutdex" title="Ouvrir tous les charts affiches">{{ icon('trend') }}</button>
