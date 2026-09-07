@@ -288,32 +288,17 @@ _WIN = {"at": 0.0, "liste": [], "cle": None}
 TTL_WIN_S = 600.0
 
 
-def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
+def _tous_reperes() -> list:
     """
-    Les coins reperes bas qui ont fait au moins `seuil` fois leur mise.
+    Tous les coins qu'on a vus, avec leur point de depart le plus ancien.
 
-    Deux sources, aucune ne suffit seule :
-
-      - le journal sait a quel market cap l'alerte est partie, mais ne
-        contient que les coins alertes ;
-      - les photos de soldes couvrent tout ce qui passe dans le radar, et le
-        market cap s'y deduit du prix et du supply — verifie exact sur 240
-        coins. Elles rattrapent donc les coins qu'on a vus sans alerter.
-
-    Quand les deux connaissent un coin, le journal donne le point de depart
-    (c'est le moment ou on l'a vraiment repere) et les photos completent le
-    plus haut atteint.
+    Deux sources : le journal sait a quel market cap l'alerte est partie mais
+    ne contient que les coins alertes ; les photos de soldes couvrent tout ce
+    qui passe au radar, market cap deduit du prix et du supply.
     """
     import os as _os
 
     import config as _cfg
-
-    # La liste demande des cours frais : sans cache, chaque affichage de page
-    # relancerait ces appels et figerait l'interface.
-    cle = (seuil, mc_max)
-    if (_WIN["cle"] == cle and _WIN["liste"]
-            and time.time() - _WIN["at"] < TTL_WIN_S):
-        return _WIN["liste"]
 
     trouves = {}
 
@@ -378,7 +363,6 @@ def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
                 }
 
     noms = _symboles()
-    out = []
     for e in trouves.values():
         if len(e["symbol"]) <= 6 and e["mint"].startswith(e["symbol"]):
             e["symbol"] = noms.get(e["mint"], e["symbol"])   # nom retrouve
@@ -404,28 +388,218 @@ def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
     # Le plus haut connu vient des photos et du journal. Un coin qu'on a
     # cesse de photographier a donc un maximum fige : il ne pourrait plus
     # jamais entrer ici, meme en montant. On va chercher son cours du jour,
-    # mais seulement pour ceux qui pourraient basculer.
+    # pour les seuls candidats qui pourraient basculer.
     faibles = [e["mint"] for e in trouves.values()
-               if 0 < e["mc0"] <= mc_max and e["haut"] / e["mc0"] < seuil]
+               if 0 < e["mc0"] <= MC_BAS
+               and e["haut"] / e["mc0"] < SEUIL_WIN]
     if faibles:
         try:
             from mmscanner import holdings as _h
             frais = _h._metriques(faibles[:80])
             for e in trouves.values():
-                mc = (frais.get(e["mint"]) or {}).get("mc") or 0
-                if mc > e["haut"]:
-                    e["haut"] = mc
+                x = frais.get(e["mint"]) or {}
+                if (x.get("mc") or 0) > e["haut"]:
+                    e["haut"] = x["mc"]
+                if x.get("pair") and not e["pair"]:
+                    e["pair"] = x["pair"]
         except Exception:
             pass
+    return list(trouves.values())
 
-    for e in trouves.values():
+
+def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
+    """
+    Les coins reperes bas qui ont fait au moins `seuil` fois leur mise.
+
+    Deux multiples, et le second est celui qui compte : depuis la premiere
+    vue, et depuis le creux qui a suivi. On repere un coin, il retrace, et
+    c'est de ce creux que part l'expansion — c'est la le trade. Compter
+    depuis la premiere vue supposerait qu'on achete a l'instant du reperage.
+    """
+    cle = (seuil, mc_max)
+    if (_WIN["cle"] == cle and _WIN["liste"]
+            and time.time() - _WIN["at"] < TTL_WIN_S):
+        return _WIN["liste"]
+
+    tous = _tous_reperes()
+    bougies = _lire_bougies()
+    out = []
+    for e in tous:
         if e["mc0"] <= 0 or e["mc0"] > mc_max:
             continue                     # pas "repere bas"
-        mult = e["haut"] / e["mc0"]
-        if mult < seuil:
+        b = bougies.get(e["mint"]) or {}
+        e["creux"] = b.get("creux_mc")
+        e["mult_creux"] = b.get("mult")
+        depuis_vue = e["haut"] / e["mc0"] if e["mc0"] else 0
+        e["mult_vue"] = depuis_vue
+        e["mult"] = max(depuis_vue, e["mult_creux"] or 0)
+        if e["mult"] < seuil:
             continue
-        e["mult"] = mult
         out.append(e)
     out.sort(key=lambda e: -e["mult"])
     _WIN.update(at=time.time(), liste=out, cle=cle)
+    return out
+# ── le parcours reel, celui qu'on aurait pu prendre ────────────────
+# Compter depuis la premiere vue suppose qu'on achete a l'instant du
+# reperage. Ce n'est pas la methode : on repere, le coin retrace, et c'est de
+# ce creux que part l'expansion. MINI l'a montre — vu a 1,31 M$, retrace a
+# 495 K$ trois heures plus tard, puis sommet a 3,62 M$. Depuis la premiere
+# vue cela fait x2,8 et le coin sortait de la liste ; depuis le creux, x7,3.
+#
+# Les photos de soldes ne peuvent pas repondre : elles sont espacees d'au
+# moins trente minutes et s'arretent des que le coin quitte le classement.
+# Les bougies, elles, couvrent tout. On les relit en fond, pas a l'affichage.
+FICHIER_BOUGIES = "win_bougies.json"
+TTL_BOUGIES_S = 1800.0
+_BOUGIES = None
+
+
+def _lire_bougies() -> dict:
+    global _BOUGIES
+    if _BOUGIES is not None:
+        return _BOUGIES
+    import config as _cfg
+    try:
+        with open(_cfg.path(FICHIER_BOUGIES), "r", encoding="utf-8") as f:
+            _BOUGIES = json.load(f) or {}
+    except Exception:
+        _BOUGIES = {}
+    return _BOUGIES
+
+
+def _ecrire_bougies() -> None:
+    import config as _cfg
+    try:
+        chemin = _cfg.path(FICHIER_BOUGIES)
+        tmp = chemin + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_BOUGIES or {}, f, separators=(",", ":"))
+        os.replace(tmp, chemin)
+    except Exception:
+        pass
+
+
+REPLI_MINI = 0.20    # sous ce reste, ce n'est plus un repli mais un effondrement
+
+
+def _parcours_bougies(pool: str, chain: str, depuis: float,
+                      px_depart: float = 0.0) -> Optional[dict]:
+    """
+    Creux puis sommet, apres l'instant `depuis`.
+
+    Le sommet est cherche APRES le creux, dans cet ordre : ce qui nous
+    interesse est la remontee qui suit le repli.
+
+    Deux garde-fous, sans lesquels ce chiffre serait de la reconstruction
+    d'apres coup. On prend le plus bas des CLOTURES et non des meches :
+    personne n'achete une impression a 2 643 $ vue une seconde. Et le creux
+    doit rester au-dessus du cinquieme du cours de depart — en dessous, le
+    coin s'est effondre, il n'a pas retrace, et la remontee mesuree depuis ce
+    fond n'a rien d'un trade qu'on aurait pu prendre.
+    """
+    from mmscanner import sources_gecko as gecko
+
+    lst = gecko.ohlcv(pool, timeframe="hour", aggregate=1, limit=300, chain=chain)
+    lst = sorted([x for x in (lst or []) if x and x[0] >= depuis],
+                 key=lambda x: x[0])
+    if len(lst) < 3:
+        return None
+    plancher = px_depart * REPLI_MINI if px_depart else 0.0
+    haut = max(lst, key=lambda x: x[2])
+    avant = [x for x in lst if x[0] <= haut[0] and x[4] > plancher]
+    if not avant:
+        return None
+    creux = min(avant, key=lambda x: x[4])      # clotures, pas meches
+    if creux[4] <= 0:
+        return None
+    return {"creux_px": creux[4], "sommet_px": haut[2],
+            "t_creux": creux[0], "t_sommet": haut[0],
+            "mult": haut[2] / creux[4], "at": time.time()}
+
+
+TTL_ECHEC_S = 6 * 3600.0     # une lecture impossible ne se retente pas sans cesse
+
+
+def rafraichir_parcours(log=print, budget: int = 25) -> int:
+    """
+    Relit les bougies des candidats, par vagues, en tache de fond.
+
+    Trois economies, apprises a la premiere execution ou vingt-cinq appels
+    n'ont rien donne :
+      - les chaines que GeckoTerminal ne couvre pas (Robinhood) sont ecartees
+        d'emblee, sinon elles consomment tout le budget en echecs ;
+      - on commence par les coins les plus proches du seuil, ceux dont la
+        reponse changera quelque chose ;
+      - un echec est memorise six heures, une reussite trente minutes.
+    """
+    from mmscanner import holdings as _h
+    from mmscanner import sources_gecko as gecko
+
+    cache = _lire_bougies()
+    maintenant = time.time()
+    attente = []
+    for e in _candidats():
+        if not gecko.net_for(e.get("chain") or "solana"):
+            continue                       # reseau non couvert, inutile d'essayer
+        v = cache.get(e["mint"]) or {}
+        age = maintenant - (v.get("at") or 0)
+        if age < (TTL_BOUGIES_S if v.get("mult") else TTL_ECHEC_S):
+            continue
+        attente.append(e)
+    if not attente:
+        return 0
+    # les plus proches du seuil d'abord : c'est la que la reponse compte
+    attente.sort(key=lambda e: -(e["haut"] / e["mc0"] if e["mc0"] else 0))
+    attente = attente[:budget]
+
+    manque = [e["mint"] for e in attente if not e.get("pair")]
+    pools = _h._metriques(manque) if manque else {}
+    n = 0
+    for e in attente:
+        pool = e.get("pair") or (pools.get(e["mint"]) or {}).get("pair") or ""
+        if not pool:
+            cache[e["mint"]] = {"at": maintenant}
+            continue
+        try:
+            sup0 = _supply(e["mint"])
+            px0 = (e["mc0"] / sup0) if sup0 else 0.0
+            r = _parcours_bougies(pool, e.get("chain") or "solana", e["at"], px0)
+        except Exception:
+            r = None
+        if r:
+            # les bougies donnent des prix ; on les rend lisibles en market
+            # cap avec le supply de la derniere photo du coin
+            sup = _supply(e["mint"])
+            if sup:
+                r["creux_mc"] = r["creux_px"] * sup
+                r["sommet_mc"] = r["sommet_px"] * sup
+            n += 1
+        cache[e["mint"]] = r or {"at": maintenant}
+    _ecrire_bougies()
+    _WIN["at"] = 0.0                      # la liste doit se refaire
+    if n:
+        log(f"[win] parcours relu pour {n} coin(s) sur {len(attente)}")
+    return n
+
+
+def _supply(mint: str) -> float:
+    """Le supply vu a la derniere photo, pour traduire un prix en market cap."""
+    import config as _cfg
+    d = getattr(_cfg, "SNAPSHOT_DIR", None)
+    if not d:
+        return 0.0
+    try:
+        with open(os.path.join(d, mint + ".json"), "r", encoding="utf-8") as f:
+            snaps = json.load(f)
+        return float((snaps[-1] or {}).get("supply") or 0)
+    except Exception:
+        return 0.0
+
+
+def _candidats() -> list:
+    """Les coins reperes bas — ceux dont le parcours vaut la peine d'etre lu."""
+    out = []
+    for e in _tous_reperes():
+        if 0 < e["mc0"] <= MC_BAS and e.get("at"):
+            out.append(e)
     return out

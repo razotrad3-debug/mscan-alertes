@@ -17,6 +17,7 @@ STATE = {"pairs": [], "updated": 0, "scanning": False, "mode": "live", "error": 
          "holdings": None}          # rempli au scan ; sinon relu sur disque
 _LOCK = threading.Lock()
 _APPRIS = {"at": 0.0}
+_PARCOURS = {"at": 0.0}
 
 
 # ── formatage ──────────────────────────────────────────────────────
@@ -868,6 +869,20 @@ def scan_loop(demo: bool = False):
             except Exception as e:
                 print(f"[holdings] {e}")
 
+            # le parcours reel des coins reperes : creux puis sommet, lu dans
+            # les bougies. GeckoTerminal limite le debit, donc par vagues en
+            # fond — jamais a l'affichage.
+            try:
+                if time.time() - _PARCOURS["at"] > 300:
+                    _PARCOURS["at"] = time.time()
+                    import threading as _th2
+                    from mmscanner import journal as _jp
+
+                    _th2.Thread(target=lambda: _jp.rafraichir_parcours(budget=20),
+                                daemon=True).start()
+            except Exception as e:
+                print(f"[win] {e}")
+
             # ce que les alertes sont devenues. Sans cet appel, le journal
             # ne se remplissait jamais cote application : il n'etait suivi
             # que par bot_server, cote cloud.
@@ -1617,15 +1632,10 @@ function applyFilter(f){
   var liens=[].slice.call(document.querySelectorAll('a[title="DexScreener"]'))
     .filter(function(a){var it=a.closest('.item');return it&&it.offsetParent!==null;});
   if(!liens.length){alert('Aucun chart a ouvrir.');return;}
-  var msg;
-  if(liens.length>PLAFOND){
-   msg=liens.length+' charts affiches, trop pour un seul geste. On ouvre les '
-     +PLAFOND+' premiers. Filtre la liste pour viser plus juste.';
-   liens=liens.slice(0,PLAFOND);
-  }else{
-   msg='Ouvrir les '+liens.length+' charts DexScreener ?';
-  }
-  if(!confirm(msg+' Autorise les fenetres surgissantes si le navigateur les bloque.'))return;
+  // Pas de confirmation : le bouton n'a qu'un seul effet, il est explicite,
+  // et devoir valider a chaque fois pour ouvrir ses propres charts est une
+  // friction inutile. Au-dela du plafond on tronque en silence.
+  if(liens.length>PLAFOND)liens=liens.slice(0,PLAFOND);
   b.disabled=true;
   // toutes dans le meme geste : un window.open differe se fait bloquer
   liens.forEach(function(a){try{window.open(a.href,'_blank','noopener');}catch(e){}});
@@ -1861,10 +1871,10 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
          data-phase="—" data-chain="{{ c.chain or 'solana' }}"
          data-wallets="0" data-winonly="1">
       <div class="r" style="grid-template-columns:74px minmax(0,1fr) 96px auto">
-        <div class="gr" style="--gc:#4ade80;color:#4ade80;font-size:11px">x{{ '%.1f'|format(c.mult) }}</div>
+        <div class="gr" style="--gc:#4ade80;color:#4ade80;font-size:11px">x{{ '%.1f'|format(c.mult) }}{% if c.mult_creux and c.mult_creux >= c.mult_vue %}<div style="font-size:7px;letter-spacing:.06em;opacity:.75;margin-top:2px">DU CREUX</div>{% endif %}</div>
         <div class="id">
           <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}</span>{% endif %}</div>
-          <div class="s">repéré à {{ c.mc0|fmt }}{% if c.at %} · {{ c.at|ago }}{% endif %} · {{ 'alerte envoyée' if c.source == 'alerte' else 'vu au radar' }}</div>
+          <div class="s">repéré à {{ c.mc0|fmt }}{% if c.creux %} · creux {{ c.creux|fmt }}{% endif %}{% if c.at %} · {{ c.at|ago }}{% endif %} · {{ 'alerte envoyée' if c.source == 'alerte' else 'vu au radar' }}</div>
         </div>
         <div class="val"><div class="m num">{{ c.haut|fmt }}</div>
           <div class="c num">plus haut</div></div>
@@ -2074,15 +2084,10 @@ PAGE_HOLDINGS = (_H + "<title>MSCAN · Holdings</title>" + STYLE + "</head><body
   var liens=[].slice.call(document.querySelectorAll('a[title="DexScreener"]'))
     .filter(function(a){var it=a.closest('.item');return it&&it.offsetParent!==null;});
   if(!liens.length){alert('Aucun chart a ouvrir.');return;}
-  var msg;
-  if(liens.length>PLAFOND){
-   msg=liens.length+' charts affiches, trop pour un seul geste. On ouvre les '
-     +PLAFOND+' premiers. Filtre la liste pour viser plus juste.';
-   liens=liens.slice(0,PLAFOND);
-  }else{
-   msg='Ouvrir les '+liens.length+' charts DexScreener ?';
-  }
-  if(!confirm(msg+' Autorise les fenetres surgissantes si le navigateur les bloque.'))return;
+  // Pas de confirmation : le bouton n'a qu'un seul effet, il est explicite,
+  // et devoir valider a chaque fois pour ouvrir ses propres charts est une
+  // friction inutile. Au-dela du plafond on tronque en silence.
+  if(liens.length>PLAFOND)liens=liens.slice(0,PLAFOND);
   b.disabled=true;
   // toutes dans le meme geste : un window.open differe se fait bloquer
   liens.forEach(function(a){try{window.open(a.href,'_blank','noopener');}catch(e){}});
