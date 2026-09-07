@@ -57,9 +57,18 @@ def _load(mint: str) -> List[dict]:
 
 
 def _save(mint: str, snaps: List[dict]) -> None:
+    """
+    Ecrit les photos, en gardant TOUJOURS la premiere.
+
+    L'ancienne version coupait par le debut. Or la premiere photo est celle
+    sur laquelle se mesure la presence de la cohorte : c'est l'etat du coin
+    quand on l'a decouvert, et rien ne la remplace. On coupe donc au milieu.
+    """
     try:
+        if len(snaps) > MAX_SNAPS:
+            snaps = [snaps[0]] + snaps[-(MAX_SNAPS - 1):]
         with open(_path(mint), "w", encoding="utf-8") as f:
-            json.dump(snaps[-MAX_SNAPS:], f)
+            json.dump(snaps, f)
     except Exception:
         pass
 

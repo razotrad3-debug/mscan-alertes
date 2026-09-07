@@ -284,6 +284,10 @@ def _symboles() -> dict:
     return noms
 
 
+_WIN = {"at": 0.0, "liste": [], "cle": None}
+TTL_WIN_S = 600.0
+
+
 def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
     """
     Les coins reperes bas qui ont fait au moins `seuil` fois leur mise.
@@ -303,6 +307,13 @@ def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
     import os as _os
 
     import config as _cfg
+
+    # La liste demande des cours frais : sans cache, chaque affichage de page
+    # relancerait ces appels et figerait l'interface.
+    cle = (seuil, mc_max)
+    if (_WIN["cle"] == cle and _WIN["liste"]
+            and time.time() - _WIN["at"] < TTL_WIN_S):
+        return _WIN["liste"]
 
     trouves = {}
 
@@ -344,8 +355,16 @@ def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
                     break
             e = trouves.get(mint)
             if e:
-                # le journal garde son point de depart : c'est le moment ou
-                # l'alerte est partie, pas celui de la premiere photo
+                # Le point de depart est le PLUS ANCIEN des deux, pas celui du
+                # journal. OTC a ete alerte a 5,4 M$ alors que le radar l'avait
+                # photographie a 753 K$ trois jours plus tot : garder la valeur
+                # de l'alerte faisait passer un x8 pour un x1,2 et le sortait
+                # de la liste.
+                t_photo = snaps[0].get("ts") or 0
+                if t_photo and (not e["at"] or t_photo < e["at"]):
+                    e["at"] = t_photo
+                    e["mc0"] = mc0
+                    e["source"] = "radar"
                 e["haut"] = max(e["haut"], haut)
                 e["dernier"] = e["dernier"] or dernier
                 if sym and e["symbol"] == mint[:6]:
@@ -363,6 +382,43 @@ def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
     for e in trouves.values():
         if len(e["symbol"]) <= 6 and e["mint"].startswith(e["symbol"]):
             e["symbol"] = noms.get(e["mint"], e["symbol"])   # nom retrouve
+
+    # ceux qui n'ont de nom nulle part : on demande a DexScreener. Ce sont des
+    # coins photographies avant qu'on pense a garder le symbole ; une adresse
+    # brute dans la liste des coups gagnants ne dit rien a personne.
+    orphelins = [e["mint"] for e in trouves.values()
+                 if len(e["symbol"]) <= 8 and e["mint"].startswith(e["symbol"])]
+    if orphelins:
+        try:
+            from mmscanner import holdings as _h
+            infos = _h._metriques(orphelins[:40])
+            for e in trouves.values():
+                x = infos.get(e["mint"]) or {}
+                if x.get("symbol") and e["mint"].startswith(e["symbol"]):
+                    e["symbol"] = x["symbol"]
+                    if x.get("pair") and not e["pair"]:
+                        e["pair"] = x["pair"]
+        except Exception:
+            pass
+
+    # Le plus haut connu vient des photos et du journal. Un coin qu'on a
+    # cesse de photographier a donc un maximum fige : il ne pourrait plus
+    # jamais entrer ici, meme en montant. On va chercher son cours du jour,
+    # mais seulement pour ceux qui pourraient basculer.
+    faibles = [e["mint"] for e in trouves.values()
+               if 0 < e["mc0"] <= mc_max and e["haut"] / e["mc0"] < seuil]
+    if faibles:
+        try:
+            from mmscanner import holdings as _h
+            frais = _h._metriques(faibles[:80])
+            for e in trouves.values():
+                mc = (frais.get(e["mint"]) or {}).get("mc") or 0
+                if mc > e["haut"]:
+                    e["haut"] = mc
+        except Exception:
+            pass
+
+    for e in trouves.values():
         if e["mc0"] <= 0 or e["mc0"] > mc_max:
             continue                     # pas "repere bas"
         mult = e["haut"] / e["mc0"]
@@ -371,4 +427,5 @@ def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
         e["mult"] = mult
         out.append(e)
     out.sort(key=lambda e: -e["mult"])
+    _WIN.update(at=time.time(), liste=out, cle=cle)
     return out

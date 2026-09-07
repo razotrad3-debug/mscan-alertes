@@ -22,9 +22,9 @@ from typing import Dict, List
 
 from mmscanner import cohorte_data
 
-TTL_S = 240.0        # une photo relue au plus toutes les 4 min
-MINI_PORTEURS = 50   # sous ca, la photo ne veut rien dire
-_CACHE = {}          # mint -> (mtime, part)
+MINI_PORTEURS = 50        # sous ca, la photo ne veut rien dire
+FICHIER_PARTS = "cohorte_parts.json"
+_PARTS = None             # mint -> part, garde sur disque
 _ADR = None
 
 
@@ -60,22 +60,52 @@ def _ensemble():
     return _ADR
 
 
-def _premiere_photo(mint: str):
+def _signature() -> str:
+    """Empreinte de la liste d'adresses : si elle change, le cache est caduc."""
+    a = adresses()
+    return f"{len(a)}:{a[0][:8] if a else ''}:{a[-1][:8] if a else ''}"
+
+
+def _charger_parts() -> dict:
+    global _PARTS
+    if _PARTS is not None:
+        return _PARTS
+    import json as _j
+    import config as _cfg
+    _PARTS = {}
+    try:
+        with open(_cfg.path(FICHIER_PARTS), "r", encoding="utf-8") as f:
+            d = _j.load(f) or {}
+        if d.get("sig") == _signature():
+            _PARTS = d.get("parts") or {}
+    except Exception:
+        pass
+    return _PARTS
+
+
+def _ecrire_parts() -> None:
+    import json as _j
+    import os as _o
+    import config as _cfg
+    try:
+        chemin = _cfg.path(FICHIER_PARTS)
+        tmp = chemin + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            _j.dump({"sig": _signature(), "parts": _PARTS or {}}, f,
+                    separators=(",", ":"))
+        _o.replace(tmp, chemin)
+    except Exception:
+        pass
+
+
+def _mesurer(mint: str):
     """
-    La PREMIERE photo de soldes prise pour ce coin.
+    Lit la PREMIERE photo du coin et calcule la part de cohorte presente.
 
-    Pas la derniere : c'est sur la premiere que la regle a ete mesuree, et
-    c'est la seule qui ait un sens. Ces bots entrent et ressortent ; lire la
-    photo du jour revient a demander "sont-ils encore la maintenant", alors
-    que la question est "etaient-ils la quand on a decouvert le coin". Lire
-    la derniere photo donnait 0 % partout, y compris sur fone et OTC dont on
-    sait qu'ils la portaient.
-
-    C'est la que se lit la cohorte. Interroger les 349 wallets un par un
-    couterait trois fois la charge Helius actuelle, alors que holder_flow
-    photographie deja les porteurs des meilleurs coins a chaque scan : la
-    reponse est deja sur le disque, gratuite, et c'est exactement la matiere
-    sur laquelle la regle a ete mesuree.
+    Pas la derniere : c'est sur la premiere que la regle a ete mesuree. Ces
+    bots entrent et ressortent ; lire la photo du jour reviendrait a demander
+    "sont-ils encore la maintenant" alors que la question est "etaient-ils la
+    quand on a decouvert le coin".
     """
     import json as _j
     import os as _o
@@ -84,51 +114,47 @@ def _premiere_photo(mint: str):
 
     d = getattr(_cfg, "SNAPSHOT_DIR", None)
     if not d:
-        return None, 0.0
-    chemin = _o.path.join(d, mint + ".json")
+        return None
     try:
-        mtime = _o.path.getmtime(chemin)
-    except Exception:
-        return None, 0.0
-    vieux = _CACHE.get(mint)
-    if vieux and vieux[0] == mtime:
-        return "cache", vieux[1]
-    try:
-        with open(chemin, "r", encoding="utf-8") as f:
+        with open(_o.path.join(d, mint + ".json"), "r", encoding="utf-8") as f:
             snaps = _j.load(f)
     except Exception:
-        return None, 0.0
+        return None
     if not isinstance(snaps, list) or not snaps:
-        return None, 0.0
-    return snaps[0], mtime
+        return None
+    h = snaps[0].get("holders") or {}
+    if len(h) < MINI_PORTEURS:
+        return None
+    adr = _ensemble()
+    return len(adr & set(h)) / max(1, len(adr))
 
 
 def part(mint, log=print):
     """
     Part de la cohorte presente sur ce coin, ou None tant qu'on ne sait pas.
 
+    Le resultat est garde sur disque, definitivement : la premiere photo d'un
+    coin ne change plus une fois prise (holder_flow la preserve au rognage).
+    Sans ce cache, chaque affichage de page relisait 240 Mo de photos et
+    figeait l'application pendant les scans.
+
     None n'est pas zero : le modele refuse de noter une mesure absente, la ou
-    un zero lui ferait affirmer que la cohorte n'est pas la. C'est exactement
-    l'erreur qui a vide l'onglet Potentiel.
+    un zero lui ferait affirmer que la cohorte n'est pas la.
     """
     if not mint:
         return None
-    photo, mtime = _premiere_photo(mint)
-    if photo == "cache":
-        return mtime
-    if not photo:
-        return None
-    h = photo.get("holders") or {}
-    if len(h) < MINI_PORTEURS:
-        return None
-    adr = _ensemble()
-    p = len(adr & set(h)) / max(1, len(adr))
-    _CACHE[mint] = (mtime, p)
+    cache = _charger_parts()
+    if mint in cache:
+        v = cache[mint]
+        return None if v is None else float(v)
+    p = _mesurer(mint)
+    cache[mint] = p
+    _ecrire_parts()
     return p
 
 
 def index(log=print) -> Dict[str, float]:
-    """{mint: part}, pour tous les coins dont on a une photo."""
+    """{mint: part}, pour tous les coins dont on a une photo exploitable."""
     import os as _o
 
     import config as _cfg
@@ -136,13 +162,21 @@ def index(log=print) -> Dict[str, float]:
     d = getattr(_cfg, "SNAPSHOT_DIR", None)
     if not d or not _o.path.isdir(d):
         return {}
+    cache = _charger_parts()
+    neuf = False
     out = {}
     for f in _o.listdir(d):
         if not f.endswith(".json"):
             continue
-        v = part(f[:-5], log=log)
+        m = f[:-5]
+        if m not in cache:
+            cache[m] = _mesurer(m)
+            neuf = True
+        v = cache[m]
         if v is not None:
-            out[f[:-5]] = v
+            out[m] = float(v)
+    if neuf:
+        _ecrire_parts()
     return out
 
 
@@ -372,7 +406,12 @@ def reconstruire(log=print, ecrire: bool = True) -> dict:
                            "precision": prec, "base": base, "plancher": haut,
                            "gagnants": len(G), "temoins": len(P)}, f)
             os.replace(tmp, _fichier_appris())
-            _IDX["at"] = 0.0
+            # la liste change : tout ce qui a ete mesure avec l'ancienne est
+            # caduc. La signature du cache s'en chargera, mais on vide aussi
+            # ce qu'on a en memoire.
+            global _PARTS, _ADR
+            _PARTS = {}
+            _ADR = None
             log(f"[cohorte] nouvelle liste ecrite ({len(neuve)} adresses)")
         except Exception as e:
             log(f"[cohorte] ecriture : {e}")
