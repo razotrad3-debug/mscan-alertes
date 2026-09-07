@@ -450,7 +450,12 @@ def gagnants(seuil: float = SEUIL_WIN, mc_max: float = MC_BAS) -> list:
 # moins trente minutes et s'arretent des que le coin quitte le classement.
 # Les bougies, elles, couvrent tout. On les relit en fond, pas a l'affichage.
 FICHIER_BOUGIES = "win_bougies.json"
-TTL_BOUGIES_S = 1800.0
+# Un parcours deja lu ne bouge pas vite : le creux est passe, le sommet ne
+# se deplace qu'a la hausse. Le relire toutes les demi-heures consommait tout
+# le budget sur les memes soixante-cinq coins pendant que deux cent trente
+# attendaient leur tour. Les coins jamais lus passent maintenant devant.
+TTL_BOUGIES_S = 3 * 3600.0      # deja lu, pas encore gagnant
+TTL_GAGNANT_S = 12 * 3600.0     # deja gagnant : plus rien a decouvrir de vital
 _BOUGIES = None
 
 
@@ -542,15 +547,25 @@ def rafraichir_parcours(log=print, budget: int = 25) -> int:
         if not gecko.net_for(e.get("chain") or "solana"):
             continue                       # reseau non couvert, inutile d'essayer
         v = cache.get(e["mint"]) or {}
-        age = maintenant - (v.get("at") or 0)
-        if age < (TTL_BOUGIES_S if v.get("mult") else TTL_ECHEC_S):
+        if not v:
+            attente.append((0, e))         # jamais lu : priorite absolue
             continue
-        attente.append(e)
+        age = maintenant - (v.get("at") or 0)
+        mult = v.get("mult") or 0
+        if not mult:
+            seuil = TTL_ECHEC_S
+        elif mult >= SEUIL_WIN:
+            seuil = TTL_GAGNANT_S
+        else:
+            seuil = TTL_BOUGIES_S
+        if age < seuil:
+            continue
+        attente.append((1, e))
     if not attente:
         return 0
-    # les plus proches du seuil d'abord : c'est la que la reponse compte
-    attente.sort(key=lambda e: -(e["haut"] / e["mc0"] if e["mc0"] else 0))
-    attente = attente[:budget]
+    # jamais lus d'abord, puis les plus proches du seuil
+    attente.sort(key=lambda t: (t[0], -(t[1]["haut"] / t[1]["mc0"] if t[1]["mc0"] else 0)))
+    attente = [e for _, e in attente[:budget]]
 
     manque = [e["mint"] for e in attente if not e.get("pair")]
     pools = _h._metriques(manque) if manque else {}
