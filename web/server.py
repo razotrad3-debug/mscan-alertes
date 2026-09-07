@@ -274,7 +274,10 @@ def create_app():
             from mmscanner import telegram_alerts as tgm, holdings as hmod2
             jour = tgm.jour_partage()
             manquants = [m for m in jour if m not in {p.mint for p in ranked}]
-            frais2 = hmod2._metriques(manquants) if manquants else {}
+            # frais=True : on va decider d'ecarter des lignes sur ce chiffre,
+            # un prix mis en cache 45 min ferait disparaitre le mauvais coin
+            frais2 = hmod2._metriques(manquants, frais=True) if manquants else {}
+            MC_MORT = 100_000.0
             connus2 = {p.mint: p for p in ranked}
             today_rows = []
             for m, v in jour.items():
@@ -296,6 +299,11 @@ def create_app():
                     "phase": q.phase if q else "",
                     "at": v.get("at") or 0,
                 })
+            # un coin retombe sous 100 K$ est mort : il encombre la liste du
+            # jour sans rien dire. On ne l'ecarte que si on connait son market
+            # cap actuel — sans mesure, on ne suppose pas.
+            today_rows = [c for c in today_rows
+                          if not c.get("mc") or c["mc"] >= MC_MORT]
             today_rows.sort(key=lambda c: -(c.get("at") or 0))
         except Exception:
             today_rows = []
@@ -1727,9 +1735,9 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
     <button class="chip gold" data-f="top">A+ / A / A- <i>{{ counts.top }}</i></button>
     <button class="chip tl" data-f="ligne">Trendline <i>{{ counts.ligne }}</i></button>
     <button class="chip pep" data-f="pepite">Potentiel <i>{{ counts.pepite }}</i></button>
+    <button class="chip" data-f="today">Today <i>{{ counts.today }}</i></button>
     <button class="chip" data-f="conv">Convergence <i>{{ counts.conv }}</i></button>
     <button class="chip" data-f="wallet">Smart wallet <i>{{ counts.wallet }}</i></button>
-    <button class="chip" data-f="today">Today <i>{{ counts.today }}</i></button>
     <button class="chip" data-f="win">Win <i>{{ counts.win }}</i></button>
     <button class="chip" data-f="veille">Early <i>{{ counts.veille }}</i></button>
     <button class="ic toutdex" id="toutdex" title="Ouvrir tous les charts affiches">{{ icon('trend') }}</button>
@@ -1804,8 +1812,8 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
       <div class="r" style="grid-template-columns:74px minmax(0,1fr) 96px auto">
         <div class="gr" style="--gc:var(--gold);color:var(--gold);font-size:8px;letter-spacing:.06em">TODAY</div>
         <div class="id">
-          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) if c.frais else 'var(--muted)' }};border-color:{{ gradecolor(c.grade) + '44' if c.frais else 'var(--hair)' }}">{{ c.grade }}{% if c.score %} {{ c.score }}/{{ c.max_score }}{% endif %}</span>{% endif %}</div>
-          <div class="s">alerte {{ c.at|ago }}{% if not c.frais %} · note à l'alerte, plus au scan{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}</div>
+          <div class="n">{{ c.symbol }}{% if c.grade and c.frais %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}{% if c.score %} {{ c.score }}/{{ c.max_score }}{% endif %}</span>{% endif %}</div>
+          <div class="s">il y a {{ c.at|ago }}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}</div>
         </div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
