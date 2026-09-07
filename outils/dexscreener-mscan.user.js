@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MSCAN — mes trendlines
 // @namespace    mscan
-// @version      1.3
+// @version      1.4
 // @description  Envoie a MSCAN les trendlines que tu traces sur DexScreener
 // @match        https://dexscreener.com/*
 // @match        https://www.dexscreener.com/*
@@ -170,4 +170,28 @@
   }
 
   setInterval(function () { tour().catch(function () {}); }, 2000);
+
+  // Fermeture de l'onglet : on previent MSCAN, qui pourra proposer de retirer
+  // le coin de sa liste. On ne peut pas le deviner autrement — Chrome suspend
+  // les onglets en arriere-plan, et un onglet parfaitement ouvert peut rester
+  // des heures sans reposter. Seul cet evenement dit la verite.
+  //
+  // sendBeacon et non GM_xmlhttpRequest : la page est en train de partir, et
+  // seul le beacon est garanti d'etre remis. Corps en texte brut pour eviter
+  // la requete preliminaire CORS, que le navigateur n'aurait pas le temps de
+  // faire.
+  function signalerFermeture() {
+    if (!port) return;
+    var mm = location.pathname.match(/^\/([a-z0-9-]+)\/([A-Za-z0-9]{20,})/);
+    if (!mm) return;
+    try {
+      navigator.sendBeacon(
+        "http://127.0.0.1:" + port + "/api/trendlines/ferme",
+        new Blob([JSON.stringify({ chain: mm[1], pair: mm[2] })],
+                 { type: "text/plain;charset=UTF-8" }));
+    } catch (e) {}
+  }
+  window.addEventListener("pagehide", function (e) {
+    if (!e.persisted) signalerFermeture();   // mise en cache != fermeture
+  });
 })();

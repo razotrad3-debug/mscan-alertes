@@ -25,6 +25,7 @@ DEDUIT des valeurs tracees. Un memecoin cote 0,0001 $ pour 150 000 $ de
 capitalisation : neuf ordres de grandeur separent les deux, aucune ambiguite.
 """
 import hashlib
+import threading
 import json
 import math
 import os
@@ -297,6 +298,7 @@ def enregistrer(charge: dict) -> dict:
                 "facteur": facteur, "unite": unite,
                 "cree": vieille.get("cree") or maintenant,
                 "vu": maintenant,
+                "onglet_ferme": False,
                 "arme": vieille.get("arme", True),
                 "dernier_signal": vieille.get("dernier_signal") or 0,
             }
@@ -417,14 +419,47 @@ def _fin(l: dict) -> float:
     return min(max(t2 + PROLONGE_X * portee, cree + VALIDITE_MIN_H * 3600), plafond)
 
 
+def marquer_onglet_ferme(chain: str, pair: str, log=print) -> int:
+    """
+    Le navigateur signale qu'on vient de fermer l'onglet de cette paire.
+
+    On ne le devine pas au silence : Chrome suspend completement les onglets
+    en arriere-plan, et un onglet parfaitement ouvert peut rester des heures
+    sans reposter — mesure faite, vingt-sept heures pour l'un d'eux. Deduire
+    la fermeture du silence aurait donc annonce ferme six coins bien ouverts.
+    Seul le script, qui voit l'evenement de fermeture, peut le dire.
+    """
+    chain = (chain or "").lower().strip()
+    pair = (pair or "").strip()
+    if not chain or not pair:
+        return 0
+    d = _lire()
+    n = 0
+    for l in d.values():
+        if l.get("chain") == chain and l.get("pair") == pair:
+            l["onglet_ferme"] = True
+            n += 1
+    if n:
+        _ecrire(d)
+        log(f"[trendlines] onglet ferme : {pair[:10]} ({n} ligne(s))")
+    return n
+
+
 def lignes() -> List[dict]:
-    """Les lignes vivantes, avec leur niveau du moment."""
+    """
+    Les lignes vivantes, avec leur niveau du moment.
+
+    Chaque ligne porte aussi `ferme`, mis a vrai quand le script du navigateur
+    a signale la fermeture de l'onglet. Le drapeau retombe des que la paire
+    reposte, c'est-a-dire des qu'on rouvre l'onglet.
+    """
     maintenant = time.time()
     out = []
     for cle, l in _lire().items():
         if _fin(l) < maintenant:
             continue
-        out.append(dict(l, id=cle, niveau=niveau(l, maintenant), expire=_fin(l)))
+        out.append(dict(l, id=cle, niveau=niveau(l, maintenant), expire=_fin(l),
+                        ferme=bool(l.get("onglet_ferme"))))
     out.sort(key=lambda x: -(x.get("vu") or 0))
     return out
 
@@ -657,6 +692,14 @@ def _racine_depot() -> Optional[str]:
     return None
 
 
+# Un seul git a la fois, partage avec les autres modules qui poussent vers
+# ce depot. Sans lui, deux commandes se chevauchent et git refuse avec
+# "cannot lock ref 'refs/heads/main'". Reentrant : il protege aussi
+# l'ecriture du fichier chiffre, qui echouait en Errno 22 quand deux
+# requetes ecrivaient le meme fichier en meme temps.
+_VERROU_GIT = threading.RLock()
+
+
 def publier(log=print) -> bool:
     """
     Chiffre les lignes et les pousse sur le depot, pour que le cloud les voie.
@@ -681,7 +724,7 @@ def publier(log=print) -> bool:
 
     chemin = os.path.join(racine, FICHIER_ENC)
     try:
-        with open(chemin, "wb") as f:
+        with _VERROU_GIT, open(chemin, "wb") as f:
             f.write(boite.encrypt(brut))
     except Exception as e:
         log(f"[trendlines] ecriture chiffree : {e}")
@@ -694,10 +737,13 @@ def publier(log=print) -> bool:
 
     def git(*args):
         # identite passee a chaque appel : voir partage.py, le runner n'en a pas
-        return subprocess.run(("git", "-c", "user.name=MSCAN",
-                               "-c", "user.email=mscan@localhost") + args,
-                              cwd=racine, capture_output=True,
-                              text=True, timeout=90, creationflags=sans_fenetre)
+        # serialise : deux git simultanes sur le meme depot echouent avec
+        # "cannot lock ref", et chaque echec coute un aller-retour reseau
+        with _VERROU_GIT:
+            return subprocess.run(("git", "-c", "user.name=MSCAN",
+                                   "-c", "user.email=mscan@localhost") + args,
+                                  cwd=racine, capture_output=True,
+                                  text=True, timeout=90, creationflags=sans_fenetre)
     try:
         # on ne commite QUE ce fichier : le reste du depot ne nous regarde pas
         git("add", FICHIER_ENC)

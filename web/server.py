@@ -1,5 +1,6 @@
 """MSCAN — interface. Radar (liste) · Recherche (checker + whale flow) · Wallets.
 Design : noir dominant, hairlines, or sobre. Market cap en direct."""
+import json
 import threading
 import time
 from flask import Flask, render_template_string, jsonify, request
@@ -220,6 +221,8 @@ def create_app():
                 npo = sum(1 for l in ls if l.get("zone") == "poi")
                 base = {"mint": m, "n": len(ls), "nf": nf, "npo": npo,
                         "nt": len(ls) - nf - npo,
+                        # onglet ferme : toutes ses lignes se sont tues
+                        "ferme": all(l.get("ferme") for l in ls),
                         "grade": "", "score": 0,
                         "max_score": 12, "phase": "", "wallets": 0, "groups": ""}
                 if m in notes:
@@ -725,6 +728,27 @@ def create_app():
         return jsonify({"ok": ok, "marque": (d.get("mint") or "") in pepites.gagnants(),
                         "total": len(pepites.gagnants())})
 
+    @app.route("/api/trendlines/ferme", methods=["POST", "OPTIONS"])
+    def api_trendlines_ferme():
+        """
+        Le navigateur signale la fermeture d'un onglet DexScreener.
+
+        Envoye par sendBeacon au moment ou la page part : le corps arrive en
+        texte brut, sans en-tete JSON et sans requete preliminaire. On le
+        decode donc a la main plutot que via get_json.
+        """
+        from mmscanner import trendlines
+        if request.method == "OPTIONS":
+            return _ouvrir(app.make_response(("", 204)))
+        d = request.get_json(force=True, silent=True)
+        if not d:
+            try:
+                d = json.loads(request.get_data(as_text=True) or "{}")
+            except Exception:
+                d = {}
+        n = trendlines.marquer_onglet_ferme(d.get("chain") or "", d.get("pair") or "")
+        return _ouvrir(jsonify({"ok": True, "lignes": n}))
+
     @app.route("/api/trendlines/oublier", methods=["POST"])
     def api_trendlines_oublier():
         """Retire un coin de la surveillance. Appelee depuis l'app seulement."""
@@ -982,6 +1006,7 @@ button{font-family:inherit}
 .acts{display:flex;gap:1px}
 .ic{width:30px;height:30px;display:flex;align-items:center;justify-content:center;
  color:var(--fg-4);background:none;border:none;cursor:pointer;transition:color .14s}
+.tloub.ferme{color:#ff9f45;border-color:rgba(255,159,69,.45);background:rgba(255,159,69,.08)}
 .ic:hover{color:var(--gold-2)}
 .ic.on{color:var(--gold)}
 .ic.ok{color:var(--up)}
@@ -1482,7 +1507,14 @@ function majLabel(ts){if(!ts)return '—';var d=Math.max(0,Date.now()/1000-ts);
  if(d<3600)return 'màj il y a '+Math.round(d/60)+'min';
  return 'màj il y a '+(d/3600).toFixed(1)+'h';}
 async function tick(){try{
- var d=await(await fetch('/api/pairs')).json(),seen={},rows=document.querySelectorAll('#rows .item[data-grade]:not([data-grade="—"])');
+ var d=await(await fetch('/api/pairs')).json(),seen={};
+ // Uniquement les lignes du scan : les listes dediees (Today, Win, Trendline,
+ // Potentiel) ne figurent pas dans /api/pairs, ou y figurent en double. Les
+ // compter faisait echouer la comparaison ci-dessous a tous les coups, donc
+ // rechargeait la page entiere toutes les quinze secondes — 2,5 Mo re-rendus
+ // en boucle, et l'application qui se fige.
+ var rows=document.querySelectorAll('#rows .item[data-grade]:not([data-grade="—"])'
+  +':not([data-tdonly]):not([data-tlonly]):not([data-winonly]):not([data-peponly])');
  var lm=document.getElementById('lastmaj'); if(lm)lm.textContent=majLabel(d.updated);
  var np=document.getElementById('npairs'); if(np)np.textContent=d.pairs.length;
  d.pairs.forEach(function(p){seen[p.mint]=1;
@@ -1793,14 +1825,14 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
              white-space:normal;line-height:1.3;text-align:center">{{ c.marque }}</div>
         <div class="id">
           <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }} {{ c.score }}/{{ c.max_score }}</span>{% endif %}</div>
-          <div class="s">{% if c.nt %}{{ c.nt }} trendline{{ 's' if c.nt > 1 }} tracée{{ 's' if c.nt > 1 }}{% endif %}{% if c.nt and c.nf %} · {% endif %}{% if c.nf %}{{ c.nf }} fib tracée{{ 's' if c.nf > 1 }}{% endif %}{% if (c.nt or c.nf) and c.npo %} · {% endif %}{% if c.npo %}{{ c.npo }} POI{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}</div>
+          <div class="s">{% if c.nt %}{{ c.nt }} trendline{{ 's' if c.nt > 1 }} tracée{{ 's' if c.nt > 1 }}{% endif %}{% if c.nt and c.nf %} · {% endif %}{% if c.nf %}{{ c.nf }} fib tracée{{ 's' if c.nf > 1 }}{% endif %}{% if (c.nt or c.nf) and c.npo %} · {% endif %}{% if c.npo %}{{ c.npo }} POI{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}{% if c.wallets %} · {{ c.wallets }} wallet{{ 's' if c.wallets > 1 }}{% endif %}{% if c.groups %} · {{ c.groups }}{% endif %}{% if c.ferme %} · <span style="color:#ff9f45">onglet fermé</span>{% endif %}</div>
         </div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
         <div class="acts">
           <a class="ic" title="Analyse" href="/coin?mint={{ c.mint }}">{{ icon('open') }}</a>
           <a class="ic" title="DexScreener" href="{{ dexlink(c.chain, c.pair or c.mint) }}" target="_blank">{{ icon('trend') }}</a>
-          <button class="ic tloub" title="Ne plus surveiller ce coin" data-mint="{{ c.mint }}" data-sym="{{ c.symbol }}">&#10005;</button>
+          <button class="ic tloub{% if c.ferme %} ferme{% endif %}" title="{{ 'Onglet ferme sur DexScreener — retirer de la liste' if c.ferme else 'Ne plus surveiller ce coin' }}" data-mint="{{ c.mint }}" data-sym="{{ c.symbol }}">&#10005;</button>
         </div>
       </div>
     </div>

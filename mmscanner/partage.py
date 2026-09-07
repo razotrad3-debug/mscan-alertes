@@ -11,6 +11,7 @@ on n'y pose jamais rien en clair, parce que le depot est public.
 import json
 import os
 import subprocess
+import threading
 import time
 from typing import Optional
 
@@ -37,6 +38,16 @@ def _racine():
     return trendlines._racine_depot()
 
 
+# Un seul git a la fois. Trendlines, journal et partage poussent vers le
+# meme depot ; sans ce verrou leurs commandes se chevauchent et git
+# refuse avec "cannot lock ref 'refs/heads/main'" — soixante-huit fois
+# en une heure dans les journaux, chacune coutant un aller-retour reseau.
+try:
+    from mmscanner.trendlines import _VERROU_GIT
+except Exception:
+    _VERROU_GIT = threading.Lock()
+
+
 def publier(fichier: str, donnees, log=print) -> bool:
     """
     Chiffre `donnees` et pousse le fichier sur le depot.
@@ -60,7 +71,7 @@ def publier(fichier: str, donnees, log=print) -> bool:
 
     chemin = os.path.join(racine, fichier)
     try:
-        with open(chemin, "wb") as f:
+        with _VERROU_GIT, open(chemin, "wb") as f:
             f.write(boite.encrypt(brut))
     except Exception as e:
         log(f"[partage] ecriture {fichier} : {e}")
@@ -73,10 +84,13 @@ def publier(fichier: str, donnees, log=print) -> bool:
         # aucune de configuree, et un commit sans auteur echoue avec
         # "Author identity unknown". C'est ce qui empechait le cloud de
         # publier quoi que ce soit, en silence.
-        return subprocess.run(("git", "-c", "user.name=MSCAN",
-                               "-c", "user.email=mscan@localhost") + args,
-                              cwd=racine, capture_output=True,
-                              text=True, timeout=90, creationflags=sans_fenetre)
+        # serialise : deux git simultanes sur le meme depot echouent avec
+        # "cannot lock ref", et chaque echec coute un aller-retour reseau
+        with _VERROU_GIT:
+            return subprocess.run(("git", "-c", "user.name=MSCAN",
+                                   "-c", "user.email=mscan@localhost") + args,
+                                  cwd=racine, capture_output=True,
+                                  text=True, timeout=90, creationflags=sans_fenetre)
     try:
         git("add", fichier)
         r = git("commit", fichier, "-m", fichier.split(".")[0])
