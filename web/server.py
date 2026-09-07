@@ -288,6 +288,9 @@ def create_app():
                     "mc": (q.market_cap if q else None) or x.get("mc"),
                     "chg_h1": (q.chg_h1 if q else None) if q else x.get("chg_h1"),
                     "grade": (q.grade if q else None) or v.get("grade") or "",
+                    # le coin est-il encore dans le scan ? Sinon sa note est
+                    # celle du moment de l'alerte, et il faut le dire.
+                    "frais": q is not None,
                     "score": q.score if q else 0,
                     "max_score": q.max_score if q else 12,
                     "phase": q.phase if q else "",
@@ -1507,6 +1510,13 @@ document.addEventListener('click',function(e){
  applyChain(c);});
 function applyFilter(f){
  var rows=document.querySelectorAll('#rows .item'),shown=0;
+ // les mints qui ont une ligne ordinaire : sert a savoir si un coin
+ // n'existe QUE sous forme de ligne dediee (Today, Win...)
+ var normaux=new Set();
+ rows.forEach(function(it){
+  if(!it.getAttribute('data-tdonly')&&!it.getAttribute('data-tlonly')
+   &&!it.getAttribute('data-peponly')&&!it.getAttribute('data-winonly'))
+   normaux.add(it.getAttribute('data-mint'));});
  rows.forEach(function(it){
   var g=it.getAttribute('data-grade'),ph=it.getAttribute('data-phase'),
       ch=it.getAttribute('data-chain')||'solana',
@@ -1521,7 +1531,10 @@ function applyFilter(f){
   var tdo=it.getAttribute('data-tdonly')==='1';
   if(f!=='ligne'&&tlo){it.hidden=true;return;}
   if(f==='ligne'&&!tlo){it.hidden=true;return;}
-  // meme principe pour la liste du jour : sa propre presentation, son propre onglet
+  // meme principe pour la liste du jour : sa propre presentation, son propre
+  // onglet. Et elle N'ENTRE PAS dans l'onglet des notes : quand le coin a
+  // quitte le scan, la note affichee est celle du moment de l'alerte, pas
+  // l'actuelle. La faire compter comme une note A- serait un mensonge.
   if(f!=='today'&&tdo){it.hidden=true;return;}
   if(f==='today'&&!tdo){it.hidden=true;return;}
   var pep=it.getAttribute('data-peponly')==='1';
@@ -1791,8 +1804,8 @@ PAGE_RADAR = (_H + "<title>MSCAN · Radar</title>" + STYLE + "</head><body>"
       <div class="r" style="grid-template-columns:74px minmax(0,1fr) 96px auto">
         <div class="gr" style="--gc:var(--gold);color:var(--gold);font-size:8px;letter-spacing:.06em">TODAY</div>
         <div class="id">
-          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) }};border-color:{{ gradecolor(c.grade) }}44">{{ c.grade }}{% if c.score %} {{ c.score }}/{{ c.max_score }}{% endif %}</span>{% endif %}</div>
-          <div class="s">alerte {{ c.at|ago }}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}</div>
+          <div class="n">{{ c.symbol }}{% if c.grade %} <span class="tag" style="color:{{ gradecolor(c.grade) if c.frais else 'var(--muted)' }};border-color:{{ gradecolor(c.grade) + '44' if c.frais else 'var(--hair)' }}">{{ c.grade }}{% if c.score %} {{ c.score }}/{{ c.max_score }}{% endif %}</span>{% endif %}</div>
+          <div class="s">alerte {{ c.at|ago }}{% if not c.frais %} · note à l'alerte, plus au scan{% endif %}{% if c.phase and c.phase not in ('-', '—') %} · {{ c.phase }}{% endif %}</div>
         </div>
         <div class="val"><div class="m num">{{ c.mc|fmt }}</div>
           {% if c.chg_h1 is not none %}<div class="c num {{ 'up' if c.chg_h1 >= 0 else 'down' }}">{{ '%+.1f'|format(c.chg_h1) }}%</div>{% endif %}</div>
