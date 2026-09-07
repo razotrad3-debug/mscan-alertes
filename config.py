@@ -169,6 +169,14 @@ SMARTMONEY_TOP_N  = 25         # check smart-wallets sur les N meilleurs (coûte
 # coins. A 60 on reste sous 1 600 — et la cohorte passe de 10 % a ~30 % du
 # radar, ce qui est la seule facon de rendre la categorie Potentiel utile.
 PHOTOS_TOP_N      = 45         # coins photographies par scan (detenteurs)
+# Photographier les mieux classes revient a ne photographier que les plus
+# gros : 7 % des coins sous 200 K$ avaient une photo, contre 25 % au-dessus
+# de 1,5 M$. Or la cohorte se lit SUR la photo — sans elle le modele ne peut
+# rien dire d'un coin a 150 K$, c'est-a-dire exactement de ceux qu'on veut
+# reperer avant qu'ils montent. On photographie donc aussi, a chaque tour,
+# une part de coins bas que le classement n'aurait jamais atteints.
+PHOTOS_BAS_N      = 40         # coins BAS photographies en plus, par scan
+PHOTOS_MC_BAS     = 700_000    # au-dessus, ce n'est plus "bas"
 
 # ── Seuils de scoring (les piliers de la méthode) ─────────
 VOL24_MONSTER   = 1_000_000    # "volume monster"

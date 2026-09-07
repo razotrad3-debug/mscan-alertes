@@ -143,6 +143,24 @@ def balances(mint: str, max_pages: int = 4) -> Optional[Dict[str, float]]:
     return out
 
 
+def a_photographier(pairs):
+    """
+    Qui photographier a ce tour : le haut du classement, et des coins bas.
+
+    Le haut sert au Whale Flow. Les coins bas servent au modele Potentiel :
+    la cohorte se lit sur la photo, donc sans photo le modele est muet — et
+    il l'etait precisement sur les petits, ceux qu'on veut juger avant qu'ils
+    montent. Les plus jeunes d'abord : c'est la que l'information manque.
+    """
+    top = list(pairs[: config.PHOTOS_TOP_N])
+    vus = {getattr(p, "mint", None) for p in top}
+    bas = [p for p in pairs
+           if getattr(p, "mint", None) not in vus
+           and 0 < (getattr(p, "market_cap", 0) or 0) <= config.PHOTOS_MC_BAS]
+    bas.sort(key=lambda p: (getattr(p, "age_hours", None) or 1e9))
+    return top + bas[: config.PHOTOS_BAS_N]
+
+
 def snapshot(mint: str, price_usd: float, force: bool = False,
              symbol: str = "") -> bool:
     """

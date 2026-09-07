@@ -834,7 +834,7 @@ def scan_loop(demo: bool = False):
             # photos de soldes -> alimente le Whale Flow (méthode sun-flow)
             try:
                 from mmscanner import holder_flow
-                n = sum(1 for p in pairs[:config.PHOTOS_TOP_N]
+                n = sum(1 for p in holder_flow.a_photographier(pairs)
                         if holder_flow.snapshot(p.mint, p.price_usd,
                                                 symbol=p.symbol or ""))
                 if n:
