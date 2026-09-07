@@ -33,7 +33,53 @@ except Exception:
     pass
 
 # ── Clés / secrets (via .env) ─────────────────────────────
-HELIUS_API_KEY     = os.getenv("HELIUS_API_KEY", "").strip()
+# Plusieurs cles Helius : le quota mensuel d'une seule s'epuise en quelques
+# jours, et quand il tombe l'application devient aveugle — plus de photos de
+# detenteurs, donc plus de jugement sur les coins. On accepte donc une liste
+# (HELIUS_API_KEYS, separees par des virgules) et on bascule tout seul quand
+# l'une repond "max usage reached".
+def _cles_helius():
+    brut = (os.getenv("HELIUS_API_KEYS", "")
+            or os.getenv("HELIUS_API_KEY", "") or "")
+    vues, out = set(), []
+    for k in brut.replace(";", ",").split(","):
+        k = k.strip()
+        if k and k not in vues:
+            vues.add(k)
+            out.append(k)
+    return out
+
+
+HELIUS_API_KEYS = _cles_helius()
+HELIUS_API_KEY = HELIUS_API_KEYS[0] if HELIUS_API_KEYS else ""
+
+_HELIUS_A_SEC = {}          # cle -> instant avant lequel on ne la reessaie pas
+HELIUS_REPOS_S = 3600.0     # une cle a sec est mise de cote une heure
+
+
+def helius_key() -> str:
+    """La cle a utiliser maintenant, en sautant celles a sec."""
+    import time as _t
+    maintenant = _t.time()
+    for k in HELIUS_API_KEYS:
+        if _HELIUS_A_SEC.get(k, 0) <= maintenant:
+            return k
+    return HELIUS_API_KEYS[0] if HELIUS_API_KEYS else ""
+
+
+def helius_a_sec(cle: str, repos: float = None) -> None:
+    """Signale qu'une cle a rendu son quota : on passe a la suivante."""
+    import time as _t
+    if cle:
+        _HELIUS_A_SEC[cle] = _t.time() + (repos or HELIUS_REPOS_S)
+
+
+def helius_etat() -> dict:
+    import time as _t
+    maintenant = _t.time()
+    return {"cles": len(HELIUS_API_KEYS),
+            "disponibles": sum(1 for k in HELIUS_API_KEYS
+                               if _HELIUS_A_SEC.get(k, 0) <= maintenant)}
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 # FomoScan : resout un handle FOMO en wallet Solana verifie.

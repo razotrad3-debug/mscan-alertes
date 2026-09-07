@@ -13,44 +13,54 @@ from typing import Optional, Dict, List
 import config
 
 
-def _rpc(method: str, params: list, tries: int = 2) -> Optional[dict]:
-    if not config.HELIUS_API_KEY:
-        return None
-    url = f"https://mainnet.helius-rpc.com/?api-key={config.HELIUS_API_KEY}"
-    payload = {"jsonrpc": "2.0", "id": "mm", "method": method, "params": params}
-    for attempt in range(tries):
+def _poster(payload: dict, timeout: int, tries: int):
+    """
+    Poste sur Helius, en changeant de cle quand l'une a epuise son quota.
+
+    Deux refus tres differents portent le meme code 429 : "trop vite" — on
+    attend — et "max usage reached", qui veut dire que le quota du mois est
+    consomme. Attendre ne sert alors a rien : la cle est morte jusqu'au
+    renouvellement, il faut passer a la suivante. Ne pas les distinguer avait
+    laisse l'application aveugle sept heures.
+    """
+    essais = max(tries, len(config.HELIUS_API_KEYS) + 1)
+    for attempt in range(essais):
+        cle = config.helius_key()
+        if not cle:
+            return None
         try:
-            r = requests.post(url, json=payload, timeout=20)
+            r = requests.post(f"https://mainnet.helius-rpc.com/?api-key={cle}",
+                              json=payload, timeout=timeout)
             if r.status_code == 429:
+                if "max usage" in (r.text or "").lower():
+                    config.helius_a_sec(cle)
+                    continue                      # on change de cle, sans attendre
                 time.sleep(1.5 * (attempt + 1))
                 continue
             r.raise_for_status()
-            return r.json().get("result")
+            return r.json()
         except Exception:
             time.sleep(0.8 * (attempt + 1))
     return None
+
+
+def _rpc(method: str, params: list, tries: int = 2) -> Optional[dict]:
+    if not config.HELIUS_API_KEYS:
+        return None
+    j = _poster({"jsonrpc": "2.0", "id": "mm", "method": method,
+                 "params": params}, 20, tries)
+    return (j or {}).get("result")
 
 
 def _das(method: str, params: dict, tries: int = 2):
     """Appel DAS (Digital Asset Standard) de Helius."""
-    if not config.HELIUS_API_KEY:
+    if not config.HELIUS_API_KEYS:
         return None
-    url = f"https://mainnet.helius-rpc.com/?api-key={config.HELIUS_API_KEY}"
-    payload = {"jsonrpc": "2.0", "id": "mm", "method": method, "params": params}
-    for attempt in range(tries):
-        try:
-            r = requests.post(url, json=payload, timeout=30)
-            if r.status_code == 429:
-                time.sleep(1.5 * (attempt + 1))
-                continue
-            r.raise_for_status()
-            j = r.json()
-            if "error" in j:
-                return None
-            return j.get("result")
-        except Exception:
-            time.sleep(0.8 * (attempt + 1))
-    return None
+    j = _poster({"jsonrpc": "2.0", "id": "mm", "method": method,
+                 "params": params}, 30, tries)
+    if not j or "error" in j:
+        return None
+    return j.get("result")
 
 
 def holder_concentration(mint: str, max_pages: int = 6, page_size: int = 1000) -> Dict:

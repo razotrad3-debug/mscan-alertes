@@ -120,8 +120,12 @@ def _post_public(method: str, params: list, timeout: int = 45):
 
 
 def _helius_url() -> Optional[str]:
-    k = getattr(config, "HELIUS_API_KEY", "")
+    """L'URL de la cle courante — celle qui n'a pas epuise son quota."""
+    k = config.helius_key() if hasattr(config, "helius_key") else getattr(config, "HELIUS_API_KEY", "")
     return f"https://mainnet.helius-rpc.com/?api-key={k}" if k else None
+
+
+_DERNIER_TEXTE = {"t": ""}    # corps de la derniere reponse en erreur
 
 
 def _rpc(url: str, method: str, params: list, timeout: int = 60):
@@ -131,6 +135,9 @@ def _rpc(url: str, method: str, params: list, timeout: int = 60):
                                      "method": method, "params": params},
                           timeout=timeout)
         if r.status_code != 200:
+            # on retient le corps : c'est lui qui distingue "trop vite" de
+            # "quota du mois epuise", deux refus au meme code 429
+            _DERNIER_TEXTE["t"] = (r.text or "")[:200]
             return r.status_code, None
         return 200, (r.json() or {}).get("result")
     except Exception:
@@ -145,14 +152,27 @@ def rpc(method: str, params: list, essais: int = 3):
     depende d'un quota Helius intact.
     """
     global _HELIUS_KO_UNTIL, _HELIUS_OK_AT
-    hu = _helius_url()
-    if hu and time.time() > _HELIUS_KO_UNTIL:
+    # On essaie chaque cle avant d'abandonner Helius. Un 429 "max usage
+    # reached" veut dire que le quota du mois est consomme : attendre n'y
+    # changera rien, il faut la cle suivante. Un 429 ordinaire, lui, demande
+    # simplement de lever le pied.
+    cles = list(getattr(config, "HELIUS_API_KEYS", []) or [])
+    for _ in range(max(1, len(cles))):
+        cle = config.helius_key() if hasattr(config, "helius_key") else getattr(config, "HELIUS_API_KEY", "")
+        if not cle or time.time() <= _HELIUS_KO_UNTIL:
+            break
+        hu = f"https://mainnet.helius-rpc.com/?api-key={cle}"
         code, res = _rpc(hu, method, params, timeout=25)
         if code == 429:
+            if _DERNIER_TEXTE.get("t", "").lower().find("max usage") >= 0:
+                config.helius_a_sec(cle)
+                continue
             _HELIUS_KO_UNTIL = time.time() + 900
-        elif res is not None:
+            break
+        if res is not None:
             _HELIUS_OK_AT = time.time()
             return res
+        break
     for essai in range(essais):
         code, res = _post_public(method, params)
         if res is not None:
