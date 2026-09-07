@@ -25,7 +25,11 @@ import config
 from . import sources_helius as helius
 
 SNAP_DIR = config.SNAPSHOT_DIR
-MAX_SNAPS = 60          # ~30 j à 2 photos/jour
+# Chaque photo pese jusqu'a 4 000 porteurs, et le fichier entier est relu
+# puis reecrit a chaque nouvelle photo. Seize suffisent : la premiere, les
+# douze des six dernieres heures, et trois plus anciennes espacees de 12 h
+# — de quoi servir les fenetres recente et 24 h du Whale Flow.
+MAX_SNAPS = 16
 MIN_GAP_SEC = 1800      # ne pas re-photographier plus d'une fois / 30 min
 
 # Catégories par PART DU SUPPLY (et non en USD fixe) : un "whale" sur un coin à
@@ -56,19 +60,47 @@ def _load(mint: str) -> List[dict]:
         return []
 
 
-def _save(mint: str, snaps: List[dict]) -> None:
-    """
-    Ecrit les photos, en gardant TOUJOURS la premiere.
+RECENT_SEC = 6 * 3600      # en deca, on garde toutes les photos
+PAS_ANCIEN_SEC = 12 * 3600  # au-dela, une photo toutes les 12 h suffit
 
-    L'ancienne version coupait par le debut. Or la premiere photo est celle
-    sur laquelle se mesure la presence de la cohorte : c'est l'etat du coin
-    quand on l'a decouvert, et rien ne la remplace. On coupe donc au milieu.
+
+def _elaguer(snaps: List[dict]) -> List[dict]:
     """
+    Reduit l'historique sans perdre ce qui sert.
+
+    L'ancienne version gardait betement les 60 dernieres photos. Deux defauts :
+    elle jetait la PREMIERE, celle sur laquelle se mesure la cohorte ; et a une
+    photo toutes les 30 min, 60 photos ne couvrent que 30 heures — les fenetres
+    7 j et 30 j du Whale Flow n'etaient donc jamais servies malgre le poids des
+    fichiers (jusqu'a 12 Mo, relus et reecrits a chaque photo).
+
+    On garde donc : la premiere, tout ce qui date de moins de six heures, et
+    au-dela une photo toutes les douze heures. Moins de photos, plus
+    d'historique, et des fichiers qui ne figent plus l'application.
+    """
+    if len(snaps) <= MAX_SNAPS:
+        return snaps
+    maintenant = snaps[-1].get("ts", 0)
+    garde = [snaps[0]]
+    dernier_vieux = snaps[0].get("ts", 0)
+    recents = []
+    for s in snaps[1:]:
+        ts = s.get("ts", 0)
+        if maintenant - ts <= RECENT_SEC:
+            recents.append(s)
+        elif ts - dernier_vieux >= PAS_ANCIEN_SEC:
+            garde.append(s)
+            dernier_vieux = ts
+    garde.extend(recents)
+    if len(garde) > MAX_SNAPS:           # encore trop : on sacrifie le milieu
+        garde = [garde[0]] + garde[-(MAX_SNAPS - 1):]
+    return garde
+
+
+def _save(mint: str, snaps: List[dict]) -> None:
     try:
-        if len(snaps) > MAX_SNAPS:
-            snaps = [snaps[0]] + snaps[-(MAX_SNAPS - 1):]
         with open(_path(mint), "w", encoding="utf-8") as f:
-            json.dump(snaps, f)
+            json.dump(_elaguer(snaps), f)
     except Exception:
         pass
 

@@ -168,7 +168,7 @@ SMARTMONEY_TOP_N  = 25         # check smart-wallets sur les N meilleurs (coûte
 # par coin. Mesure faite : 161 photos en 24 h, soit ~670 appels par jour a 25
 # coins. A 60 on reste sous 1 600 — et la cohorte passe de 10 % a ~30 % du
 # radar, ce qui est la seule facon de rendre la categorie Potentiel utile.
-PHOTOS_TOP_N      = 60         # coins photographies par scan (detenteurs)
+PHOTOS_TOP_N      = 45         # coins photographies par scan (detenteurs)
 
 # ── Seuils de scoring (les piliers de la méthode) ─────────
 VOL24_MONSTER   = 1_000_000    # "volume monster"
