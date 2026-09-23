@@ -381,19 +381,31 @@ def notify_new(pairs: List, grades=None) -> int:
             print(f"[telegram] purge : {e}")
         sent["_jour"] = aujourdhui
 
+    phases_ok = tuple(getattr(config, "ALERT_PHASES", ()) or ())
     for p in pairs:
         if p.grade not in grades:
+            continue
+        # Pas d'alerte sur un coin deja parti : voir ALERT_PHASES dans config.
+        if phases_ok and (p.phase or "") not in phases_ok:
+            supprimees += 1
             continue
         prev = sent.get(p.mint)
         if not isinstance(prev, dict):
             prev = {}
 
-        recent = prev.get("at", 0) > fenetre
-        if recent:
-            monte_en_ap = p.grade == "A+" and prev.get("grade") != "A+"
-            if not monte_en_ap:
-                supprimees += 1
-                continue          # deja vu dans les 12 h, et rien de neuf
+        # UN COIN, UNE ANNONCE PAR JOUR. Point.
+        #
+        # La montee en A+ rouvrait la porte : un coin deja annonce revenait des
+        # que sa note montait. Elle ne servait a rien de mesurable — sur 394
+        # annonces, aucune n'a jamais atteint A+, et les 8 coins montes a A
+        # n'ont produit aucun gagnant x5.
+        if prev.get("jour") == aujourdhui:
+            supprimees += 1
+            continue
+
+        if prev.get("at", 0) > fenetre:
+            supprimees += 1
+            continue          # deja vu dans les 12 h, et rien de neuf
 
         if send(format_alert(p)):
             sent[p.mint] = {"at": now, "jour": aujourdhui,

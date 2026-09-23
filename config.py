@@ -238,7 +238,23 @@ RSI_OVERSOLD    = 40           # zone de bounce
 # ── Cadence & alertes ─────────────────────────────────────
 SCAN_INTERVAL_SEC = 600        # re-scan toutes les 10 min (un scan complet dure ~5-6 min
                                # — limite du rate-limit GeckoTerminal gratuit)
-ALERT_MIN_GRADE   = "A-"       # Telegram : alerte seulement >= cette grade
+# Telegram : alerte seulement a partir de cette note.
+#
+# Descendu de A- a B+ en meme temps qu'on ferme les phases d'expansion. Les
+# deux vont ensemble : la note recompense l'elan (RSI, poussee de volume,
+# variation de prix), donc un coin CALME echoue mecaniquement sur ces criteres
+# et plafonne a B+. Avec la barre a A-, seuls les coins qui bougeaient
+# passaient — 370 de nos 394 annonces etaient en phase Running, et aucun coin
+# en compression n'avait jamais ete annonce.
+ALERT_MIN_GRADE   = "B+"
+
+# Phases qui declenchent une alerte.
+#
+# On n'annonce plus un coin EN PLEINE EXPANSION : quand la bougie est deja
+# partie, l'alerte arrive apres le mouvement. Sont ecartees Running (bougie
+# chaude en cours), Early (jeune et deja +100 % sur la journee) et Exhausted
+# (dump a fort volume). Restent les situations ou l'on peut encore se placer.
+ALERT_PHASES = ("Compressing", "Retest", "Watch")
 
 # ── Decouverte automatique des smart wallets ──────────────
 # Le scanner relance tout seul la chasse aux smart wallets sur les coins qui
