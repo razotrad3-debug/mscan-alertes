@@ -144,9 +144,9 @@ def main():
 
     print(f"MSCAN bot · scan toutes les {interval//60} min · "
           f"alertes {'/'.join(tg.ALERT_GRADES)} vers Telegram")
-    tg.send("🟢 *MSCAN bot* demarre.\n"
-            "Envoie `/top` a tout moment pour voir les coins du dernier scan — "
-            "aucune attente, la reponse est immediate.\n`/help` pour la liste.")
+    # Pas de message de demarrage. La fenetre repart toutes les six heures :
+    # c'etaient quatre notifications par jour qui n'apprenaient rien et qui
+    # noyaient les vraies alertes. Le demarrage reste trace dans les journaux.
 
     # ── veille rapide sur les insiders ──────────────────────────────
     # Le scan complet passe par les classements volume : il voit un coin une
@@ -244,8 +244,7 @@ def main():
             return 0
         if limite and time.time() + interval > limite:
             print("[fin] limite de duree atteinte — arret propre")
-            tg.send("⏸ MSCAN : fenetre de scan terminee, "
-                    "la suivante demarre dans quelques minutes.")
+            # ni message de fin de fenetre : meme raison que le demarrage.
             return 0
 
         # on dort jusqu'au prochain cycle, sauf si /scan reclame plus tot
