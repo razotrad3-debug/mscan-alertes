@@ -47,6 +47,7 @@ jobs:
             insider_seen.json
             expansion_watch.json
             trendlines.json
+            traders_vus.json
             journal_alertes.json
             paires_nees.json
             pool_cache.json
@@ -85,6 +86,7 @@ jobs:
             insider_seen.json
             expansion_watch.json
             trendlines.json
+            traders_vus.json
             journal_alertes.json
             paires_nees.json
             pool_cache.json

@@ -215,6 +215,15 @@ def main():
     if "--once" not in args:
         threading.Thread(target=_veille, daemon=True, name="insider").start()
 
+    # ── achats et ventes des traders suivis (Pika, Donny, KPs...) ────
+    # Ici plutot que dans l'application : l'alerte doit partir PC eteint.
+    if "--once" not in args:
+        try:
+            from mmscanner import traders
+            traders.demarrer(log=print)
+        except Exception as e:
+            print(f"[traders] {e}")
+
     # thread de consultation : repond aux commandes pendant que le scan tourne
     def _listen():
         while True:

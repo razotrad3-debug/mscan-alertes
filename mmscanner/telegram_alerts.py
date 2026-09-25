@@ -27,6 +27,7 @@ PASTILLE = {
     # il n'existe qu'un seul rond bleu en emoji : Base prend donc le coeur
     # bleu clair, seule forme reellement plus claire que le bleu d'Ethereum.
     "base":      "🩵",
+    "bsc":       "🟡",   # BNB Chain
 }
 STATE_FILE = config.path("telegram_sent.json")
 ALERT_COOLDOWN_H = 12          # un meme coin n'est pas realerte avant ce delai
