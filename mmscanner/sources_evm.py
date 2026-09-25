@@ -7,6 +7,7 @@ repond. Si aucun ne repond pour une chaine, on le dit au lieu de rendre une
 liste vide silencieuse.
 """
 import re
+import calendar
 import time
 from typing import Dict, List
 
@@ -71,6 +72,17 @@ def _mark_dead(host: str) -> None:
     _dead[host] = time.time() + _DEAD_FOR
 
 
+def _quantite(brut, decimales) -> float:
+    """Quantite lisible d'un transfert ERC-20 (entier brut / 10^decimales).
+
+    Elle valait 0 en dur : les alertes d'achat EVM partaient donc sans
+    montant en dollars, faute de quantite a multiplier par le prix."""
+    try:
+        return int(brut) / (10 ** int(decimales if decimales is not None else 18))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _blockscout(base: str, address: str, limit: int) -> List[dict]:
     r = requests.get(f"{base}/api/v2/addresses/{address}/token-transfers",
                      params={"type": "ERC-20"}, headers=ENTETES, timeout=20)
@@ -83,13 +95,18 @@ def _blockscout(base: str, address: str, limit: int) -> List[dict]:
             continue
         ts = it.get("timestamp") or ""
         try:
-            epoch = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+            # l'horodatage est en UTC ("...Z") : mktime le lisait comme une
+            # heure locale, soit deux heures d'ecart a Paris
+            epoch = float(calendar.timegm(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S")))
         except Exception:
             epoch = 0.0
+        tot = it.get("total") or {}
         out.append({"mint": tok.get("address_hash") or tok.get("address") or "",
                     "symbol": tok.get("symbol") or "?",
                     "name": tok.get("name") or "?",
-                    "ts": epoch, "amount": 0.0})
+                    "ts": epoch,
+                    "amount": _quantite(tot.get("value"),
+                                        tot.get("decimals") or tok.get("decimals"))})
     return out
 
 
@@ -109,7 +126,8 @@ def _etherscan(base: str, address: str, limit: int) -> List[dict]:
         out.append({"mint": it.get("contractAddress") or "",
                     "symbol": it.get("tokenSymbol") or "?",
                     "name": it.get("tokenName") or "?",
-                    "ts": float(it.get("timeStamp") or 0), "amount": 0.0})
+                    "ts": float(it.get("timeStamp") or 0),
+                    "amount": _quantite(it.get("value"), it.get("tokenDecimal"))})
     return out
 
 
@@ -134,14 +152,19 @@ def recent_buys(address: str, chain: str = "ethereum",
         except Exception:
             _mark_dead(ep["base"])
             continue
-        # dedoublonne par token, garde le plus recent, filtre la fenetre
+        # une ligne par token : la plus recente, avec la quantite CUMULEE de
+        # la fenetre (un achat en plusieurs fois reste un seul achat)
         best: Dict[str, dict] = {}
         for row in rows:
             if not row["mint"] or row["ts"] < cutoff:
                 continue
             cur = best.get(row["mint"])
-            if not cur or row["ts"] > cur["ts"]:
-                best[row["mint"]] = row
+            if not cur:
+                best[row["mint"]] = dict(row)
+                continue
+            cur["amount"] = float(cur.get("amount") or 0) + float(row.get("amount") or 0)
+            if row["ts"] > cur["ts"]:
+                cur["ts"] = row["ts"]
         return sorted(best.values(), key=lambda r: r["ts"], reverse=True)[:limit]
     return []
 

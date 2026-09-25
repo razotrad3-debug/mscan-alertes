@@ -129,6 +129,7 @@ GARDE = 4000            # signatures retenues, pour ne pas reannoncer
 #
 # Tout ce qui est plus vieux que ce delai est donc enregistre en silence.
 FRAICHEUR_S = 20 * 60
+MONTANT_MINI_USD = 50     # en dessous : poussiere ou airdrop, pas un trade
 
 # Un trader achete aussi du SOL ou de l'USDC pour payer : ce n'est pas un
 # mouvement de conviction.
@@ -200,7 +201,7 @@ def _message(nom: str, m: Dict, info: Dict) -> str:
     from .telegram_alerts import PASTILLE
 
     chain = m.get("chain") or "solana"
-    sym = (info.get("symbol") or m["mint"][:6])
+    sym = (info.get("symbol") or m["mint"][:6]).lstrip("$")
     # LA PASTILLE DIT LA CHAINE, JAMAIS AUTRE CHOSE.
     #
     # J'avais mis un rond vert pour l'achat et un rouge pour la vente : or le
@@ -341,6 +342,13 @@ def verifier(log=print, envoyer: bool = None) -> int:
         # majors et actions tokenisees sont ecartes.
         if not is_crypto_native(info.get("symbol"), info.get("name"),
                                 m["mint"], None):
+            continue
+        # Sur EVM, tout jeton RECU passe pour un achat — y compris la
+        # poussiere et les jetons spam qu'on envoie d'office aux wallets
+        # connus. Un vrai achat de trader pese plus de quelques dollars.
+        px = float(info.get("price_usd") or 0)
+        qte = float(m.get("montant") or 0)
+        if px > 0 and qte > 0 and px * qte < MONTANT_MINI_USD:
             continue
         texte = _message(nom, m, info)
         if envoyer and tg.send(texte):
