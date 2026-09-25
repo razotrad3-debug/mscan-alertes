@@ -31,7 +31,11 @@ import requests
 
 import config
 
-PUBLIC = "https://api.mainnet-beta.solana.com"
+# Deux points d'acces gratuits. Le premier (celui de Solana) repond bien
+# depuis un PC mais pas depuis les machines de GitHub : le bot n'y lisait
+# aucune transaction. PublicNode prend le relais.
+PUBLICS = ("https://api.mainnet-beta.solana.com",
+           "https://solana-rpc.publicnode.com")
 
 QUOTES = {
     "So11111111111111111111111111111111111111112",   # WSOL
@@ -50,18 +54,19 @@ _SESSION.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4,
 # commune a tous les fils : une requete publique toutes les 0,25 s.
 _ECART_PUBLIC_S = 0.25
 _ECART_HELIUS_S = 0.15        # l'offre gratuite de Helius plafonne a 10 req/s
-_PROCHAIN = {"public": 0.0, "helius": 0.0}
+_PROCHAIN = {"helius": 0.0}
 _RYTHME = threading.Lock()
+_EN_PANNE: Dict[str, float] = {}
 
 # compteurs, pour voir dans les journaux qui a servi
 STATS = {"public": 0, "helius": 0, "echec": 0, "depuis": time.time()}
 
 
 def _attendre_tour(voie: str) -> None:
-    ecart = _ECART_PUBLIC_S if voie == "public" else _ECART_HELIUS_S
+    ecart = _ECART_HELIUS_S if voie == "helius" else _ECART_PUBLIC_S
     with _RYTHME:
         maintenant = time.time()
-        t = max(maintenant, _PROCHAIN[voie])
+        t = max(maintenant, _PROCHAIN.get(voie, 0.0))
         _PROCHAIN[voie] = t + ecart
     if t > maintenant:
         time.sleep(t - maintenant)
@@ -69,21 +74,26 @@ def _attendre_tour(voie: str) -> None:
 
 def _rpc(methode: str, params: list):
     corps = {"jsonrpc": "2.0", "id": 1, "method": methode, "params": params}
-    # 1) le RPC public, gratuit : trois essais avant de payer quoi que ce soit
-    for essai in range(3):
-        _attendre_tour("public")
-        try:
-            r = _SESSION.post(PUBLIC, json=corps, timeout=20)
-            if r.status_code == 429:
-                time.sleep(0.5 * (essai + 1))
-                continue
-            r.raise_for_status()
-            j = r.json()
-            if "error" not in j:
-                STATS["public"] += 1
-                return j.get("result")
-        except Exception:
-            time.sleep(0.3)
+    # 1) les RPC publics, gratuits : deux essais chacun avant de payer quoi
+    #    que ce soit. Un point d'acces qui echoue est mis de cote une minute.
+    for url in PUBLICS:
+        if time.time() < _EN_PANNE.get(url, 0.0):
+            continue
+        for essai in range(2):
+            _attendre_tour(url)
+            try:
+                r = _SESSION.post(url, json=corps, timeout=20)
+                if r.status_code == 429:
+                    time.sleep(0.5 * (essai + 1))
+                    continue
+                r.raise_for_status()
+                j = r.json()
+                if "error" not in j:
+                    STATS["public"] += 1
+                    return j.get("result")
+            except Exception:
+                time.sleep(0.3)
+        _EN_PANNE[url] = time.time() + 60
     # 2) Helius, un credit, en changeant de cle si l'une est a sec
     for essai in range(len(config.HELIUS_API_KEYS) + 2):
         cle = config.helius_key()

@@ -280,8 +280,10 @@ def verifier(log=print, envoyer: bool = None) -> int:
     # masque). Zero partout pendant des heures = cle a sec, pas calme plat.
     if _PREMIER_TOUR:
         _PREMIER_TOUR = False
+        from . import solana_swaps
         log("[traders] premier tour, mouvements lus sur 6 h : "
-            + ", ".join(f"{n} {k}" for n, k in sorted(bilan.items())))
+            + ", ".join(f"{n} {k}" for n, k in sorted(bilan.items()))
+            + f" — lectures Solana : {solana_swaps.bilan()}")
 
     # ce qui est trop vieux : on le retient, on ne le dit pas
     limite = time.time() - FRAICHEUR_S
