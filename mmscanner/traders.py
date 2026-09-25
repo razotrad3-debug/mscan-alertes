@@ -130,6 +130,9 @@ GARDE = 4000            # signatures retenues, pour ne pas reannoncer
 # Tout ce qui est plus vieux que ce delai est donc enregistre en silence.
 FRAICHEUR_S = 20 * 60
 MONTANT_MINI_USD = 50     # en dessous : poussiere ou airdrop, pas un trade
+# Un trader qui renforce une minute apres son premier achat ne dit rien de
+# neuf : un seul message par trader, jeton et sens sur cette duree.
+REPETITION_S = 30 * 60
 
 # Un trader achete aussi du SOL ou de l'USDC pour payer : ce n'est pas un
 # mouvement de conviction.
@@ -352,9 +355,14 @@ def verifier(log=print, envoyer: bool = None) -> int:
         qte = float(m.get("montant") or 0)
         if px > 0 and qte > 0 and px * qte < MONTANT_MINI_USD:
             continue
+        cle_rep = f"{nom}:{m['mint']}:{m['sens']}"
+        recents = vus.setdefault("recents", {})
+        if time.time() - float(recents.get(cle_rep) or 0) < REPETITION_S:
+            continue
         texte = _message(nom, m, info)
         if envoyer and tg.send(texte):
             envoyes += 1
+            recents[cle_rep] = time.time()
             log(f"[traders] {nom} {m['sens']} {m['mint'][:8]}")
             # L'onglet « Aujourd'hui » liste ce qui est parti sur Telegram
             # dans la journee, lu dans ce meme registre. Sans cette ligne, le
@@ -375,6 +383,9 @@ def verifier(log=print, envoyer: bool = None) -> int:
                     log(f"[traders] jour : {e}")
 
     vus["cles"] = list(connus)[-GARDE:]
+    limite_rep = time.time() - REPETITION_S
+    vus["recents"] = {k: t for k, t in (vus.get("recents") or {}).items()
+                      if t >= limite_rep}
     _ecrire(vus)
     return envoyes
 
