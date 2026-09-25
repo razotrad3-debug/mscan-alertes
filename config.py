@@ -256,6 +256,10 @@ ALERT_MIN_GRADE   = "B+"
 # (dump a fort volume). Restent les situations ou l'on peut encore se placer.
 ALERT_PHASES = ("Compressing", "Retest", "Watch")
 
+# Alertes "Phase Pullback" de la veille d'expansion (repli apres impulsion).
+# Coupees : la veille tourne toujours pour l'interface, rien ne part sur Telegram.
+ALERT_PULLBACK = False
+
 # ── Decouverte automatique des smart wallets ──────────────
 # Le scanner relance tout seul la chasse aux smart wallets sur les coins qui
 # viennent de percer : la watchlist se met a jour sans intervention.

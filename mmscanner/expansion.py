@@ -408,6 +408,10 @@ def poll(log=print, envoyer: bool = None) -> int:
 
     if envoyer is None:
         envoyer = tg.alerts_enabled()
+    # Les alertes "Phase Pullback" sont coupees (config.ALERT_PULLBACK) : la
+    # veille continue de tenir la liste pour l'interface, sans rien envoyer.
+    if not getattr(config, "ALERT_PULLBACK", False):
+        envoyer = False
 
     d = _lire()
     if not d:
