@@ -112,11 +112,10 @@ def ajouter(adresse: str, nom: str, log=print) -> bool:
     return True
 
 # Un tour par minute. Chaque tour relisait l'historique complet de chaque
-# adresse Solana (l'appel « enhanced », le plus cher de Helius) : on avait du
-# ralentir a cinq minutes pour ne pas vider les cles. Depuis helius_tx.swaps,
-# un tour ne coute plus qu'une signature par wallet (un credit), et
-# l'historique n'est relu que si le wallet a bouge. On peut donc regarder
-# chaque minute : l'alerte arrive quatre minutes plus tot.
+# adresse Solana (l'appel « enhanced », cent credits) : on avait du ralentir a
+# cinq minutes pour ne pas vider les cles. Depuis solana_swaps, un wallet qui
+# n'a pas bouge ne coute qu'une signature (gratuite sur le RPC public, un
+# credit sinon). On peut donc regarder chaque minute.
 PAS_S = 60.0
 FENETRE_H = 6.0         # profondeur de LECTURE, pour rattraper une coupure
 GARDE = 4000            # signatures retenues, pour ne pas reannoncer
@@ -162,32 +161,10 @@ def _ecrire(d: dict) -> None:
 
 
 def _mouvements_solana(adresse: str, depuis: float) -> List[Dict]:
-    """Achats ET ventes d'un wallet Solana, un par transaction et par jeton."""
-    from . import helius_tx
-
-    out = []
-    for tx in helius_tx.swaps(adresse, limit=100) or []:
-        ts = tx.get("timestamp") or 0
-        if ts < depuis:
-            continue
-        sig = tx.get("signature") or ""
-        for tt in tx.get("tokenTransfers") or []:
-            mint = tt.get("mint")
-            if not mint or mint in QUOTES:
-                continue
-            montant = float(tt.get("tokenAmount") or 0)
-            if montant <= 0:
-                continue
-            if tt.get("toUserAccount") == adresse:
-                sens = "achat"
-            elif tt.get("fromUserAccount") == adresse:
-                sens = "vente"
-            else:
-                continue
-            out.append({"cle": f"{sig}:{mint}:{sens}", "mint": mint,
-                        "sens": sens, "montant": montant, "ts": ts,
-                        "chain": "solana"})
-    return out
+    """Achats ET ventes d'un wallet Solana (voir solana_swaps : RPC standard,
+    un credit au plus par appel, au lieu des cent de l'API enhanced)."""
+    from . import solana_swaps
+    return solana_swaps.mouvements(adresse, depuis, limite=40)
 
 
 def _mouvements_evm(adresse: str, depuis: float) -> List[Dict]:

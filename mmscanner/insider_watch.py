@@ -122,8 +122,7 @@ def poll(log=print, amorcage: bool = False) -> int:
     # etaient purement et simplement exclues : c'est ce qui faisait arriver
     # les paires Robinhood et Ethereum bien apres le setup.
     global _EVM_PROCHAIN
-    cibles = [(a, l) for a, l in suivis
-              if not a.startswith("0x") and config.HELIUS_API_KEY]
+    cibles = [(a, l) for a, l in suivis if not a.startswith("0x")]
     if maintenant >= _EVM_PROCHAIN:
         _EVM_PROCHAIN = maintenant + EVM_TOUS_LES_S
         cibles += [(a, l) for a, l in suivis if a.startswith("0x")]

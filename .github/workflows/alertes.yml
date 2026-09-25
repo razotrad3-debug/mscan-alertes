@@ -49,6 +49,7 @@ jobs:
             trendlines.json
             traders_vus.json
             rsi_watch.json
+            solana_swaps.json
             journal_alertes.json
             paires_nees.json
             pool_cache.json
@@ -89,6 +90,7 @@ jobs:
             trendlines.json
             traders_vus.json
             rsi_watch.json
+            solana_swaps.json
             journal_alertes.json
             paires_nees.json
             pool_cache.json

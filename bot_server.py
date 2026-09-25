@@ -155,6 +155,7 @@ def main():
     _naissances = {"at": 0.0}
 
     _apprentissage = {"at": 0.0}
+    _bilan_rpc = {"at": time.time()}
     _liste_jour = {"at": 0.0}
 
     def _veille():
@@ -209,6 +210,14 @@ def main():
                     pepites.apprendre()
             except Exception as e:
                 print(f"[pepites] {e}")
+            # qui a servi les lectures Solana : RPC public (gratuit) ou Helius
+            try:
+                if time.time() - _bilan_rpc["at"] > 3600:
+                    _bilan_rpc["at"] = time.time()
+                    from mmscanner import solana_swaps
+                    print(f"[solana] {solana_swaps.bilan()}")
+            except Exception as e:
+                print(f"[solana] {e}")
             # cadence de 60 s quoi qu'il arrive, meme si le tour a ete long
             time.sleep(max(5, 60 - (time.time() - debut)))
 

@@ -169,28 +169,20 @@ def recent_buys(address: str, hours: float = 72, max_tx: int = 120) -> List[Dict
             for r in sources_evm.recent_buys(address, chain, hours=hours):
                 rows.append({**r, "chain": chain, "tx": 1})
         return rows
-    if not config.HELIUS_API_KEY:
-        return []
+    # RPC standard (voir solana_swaps) : gratuit sur le RPC public, un credit
+    # chez Helius sinon. L'historique « enhanced » qu'on lisait ici coute cent
+    # credits, pour 90 wallets chaque minute : c'est ce qui vidait les cles.
+    from . import solana_swaps
     cutoff = time.time() - hours * 3600
-    txs = helius_tx._enhanced(address, "SWAP", limit=min(max_tx, 100))
     buys: Dict[str, Dict] = {}
-    for tx in txs:
-        ts = tx.get("timestamp", 0) or 0
-        if ts < cutoff:
+    for m in solana_swaps.mouvements(address, cutoff, limite=min(max_tx, 30)):
+        if m["sens"] != "achat" or m["mint"] in QUOTE_MINTS:
             continue
-        for tt in tx.get("tokenTransfers", []) or []:
-            mint = tt.get("mint")
-            if not mint or mint in QUOTE_MINTS:
-                continue
-            if tt.get("toUserAccount") != address:
-                continue
-            amt = float(tt.get("tokenAmount") or 0)
-            if amt <= 0:
-                continue
-            rec = buys.setdefault(mint, {"mint": mint, "amount": 0.0, "ts": ts, "tx": 0})
-            rec["amount"] += amt
-            rec["ts"] = max(rec["ts"], ts)
-            rec["tx"] += 1
+        rec = buys.setdefault(m["mint"], {"mint": m["mint"], "amount": 0.0,
+                                          "ts": m["ts"], "tx": 0})
+        rec["amount"] += m["montant"]
+        rec["ts"] = max(rec["ts"], m["ts"])
+        rec["tx"] += 1
     return sorted(buys.values(), key=lambda b: b["ts"], reverse=True)
 
 
