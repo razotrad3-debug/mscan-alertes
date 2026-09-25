@@ -48,6 +48,7 @@ jobs:
             expansion_watch.json
             trendlines.json
             traders_vus.json
+            rsi_watch.json
             journal_alertes.json
             paires_nees.json
             pool_cache.json
@@ -87,6 +88,7 @@ jobs:
             expansion_watch.json
             trendlines.json
             traders_vus.json
+            rsi_watch.json
             journal_alertes.json
             paires_nees.json
             pool_cache.json

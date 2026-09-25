@@ -224,6 +224,9 @@ def poll(log=print, amorcage: bool = False) -> int:
             continue
         if h24 < MIN_CHG_H24:
             continue
+        from mmscanner import silence as _sil
+        if _sil.muet("coins"):
+            continue
         if tg.send(_format(c)):
             vu[c["mint"]] = {"at": maintenant, "par": c["par"]}
             envoyes += 1

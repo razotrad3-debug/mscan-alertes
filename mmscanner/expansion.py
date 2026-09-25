@@ -555,6 +555,9 @@ def poll(log=print, envoyer: bool = None) -> int:
         # deux fois le meme jour sous deux phases differentes
         if tg.deja_alerte(m):
             continue
+        from mmscanner import silence as _sil
+        if _sil.muet("coins"):
+            continue
         if tg.send(_message(e, x)):
             envoyees += 1
             e["alerte_at"] = maintenant

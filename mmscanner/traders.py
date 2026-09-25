@@ -111,14 +111,13 @@ def ajouter(adresse: str, nom: str, log=print) -> bool:
     log(f"[traders] {nom} ajoute : {adresse[:12]}…")
     return True
 
-# Un tour toutes les cinq minutes, pas toutes les 90 secondes.
-#
-# Chaque tour coute un appel Helius par adresse Solana : a 90 s, les quatre
-# adresses suivies consommaient 3 840 appels par jour — 115 000 par mois, soit
-# plus qu'une cle gratuite entiere, pour surveiller quatre portefeuilles.
-# Et c'etait une precision inutile : on n'annonce de toute facon que ce qui a
-# moins de vingt minutes (FRAICHEUR_S), donc cinq minutes suffisent largement.
-PAS_S = 300.0
+# Un tour par minute. Chaque tour relisait l'historique complet de chaque
+# adresse Solana (l'appel « enhanced », le plus cher de Helius) : on avait du
+# ralentir a cinq minutes pour ne pas vider les cles. Depuis helius_tx.swaps,
+# un tour ne coute plus qu'une signature par wallet (un credit), et
+# l'historique n'est relu que si le wallet a bouge. On peut donc regarder
+# chaque minute : l'alerte arrive quatre minutes plus tot.
+PAS_S = 60.0
 FENETRE_H = 6.0         # profondeur de LECTURE, pour rattraper une coupure
 GARDE = 4000            # signatures retenues, pour ne pas reannoncer
 
@@ -167,7 +166,7 @@ def _mouvements_solana(adresse: str, depuis: float) -> List[Dict]:
     from . import helius_tx
 
     out = []
-    for tx in helius_tx._enhanced(adresse, "SWAP", limit=100) or []:
+    for tx in helius_tx.swaps(adresse, limit=100) or []:
         ts = tx.get("timestamp") or 0
         if ts < depuis:
             continue

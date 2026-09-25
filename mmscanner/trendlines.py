@@ -622,7 +622,8 @@ def poll(log=print, envoyer: bool = None) -> int:
         change = True
         log(f"[trendlines] {x.get('symbol')} touche sa ligne "
             f"({val:.6g} vs {n:.6g})")
-        if envoyer and tg.send(_message(l, x, val, n, e), chat=tg.chat_lignes()):
+        from mmscanner import silence as _sil
+        if envoyer and not _sil.muet("lignes")                 and tg.send(_message(l, x, val, n, e), chat=tg.chat_lignes()):
             envoyees += 1
 
     _AMORCE["fait"] = True

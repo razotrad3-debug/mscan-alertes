@@ -364,6 +364,9 @@ def notify_new(pairs: List, grades=None) -> int:
     L'emetteur est unique (voir `alerts_enabled`) : deux scanners qui
     alerteraient chacun avec sa propre memoire enverraient tout en double.
     """
+    from mmscanner import silence as _sil
+    if _sil.muet("coins"):
+        return 0          # suspendu depuis l'application
     if not enabled() or not alerts_enabled():
         return 0
     grades = grades or ALERT_GRADES

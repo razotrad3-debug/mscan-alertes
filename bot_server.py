@@ -224,6 +224,14 @@ def main():
         except Exception as e:
             print(f"[traders] {e}")
 
+    # ── RSI des coins suivis (canal des lignes), a la minute ─────────
+    if "--once" not in args:
+        try:
+            from mmscanner import rsi_watch
+            rsi_watch.demarrer(log=print)
+        except Exception as e:
+            print(f"[rsi] {e}")
+
     # thread de consultation : repond aux commandes pendant que le scan tourne
     def _listen():
         while True:

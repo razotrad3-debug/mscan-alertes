@@ -59,6 +59,67 @@ def _enhanced(address: str, tx_type: str = None, limit: int = 100,
     return []
 
 
+# ── Relire un wallet seulement quand il a bouge ─────────────────────────
+#
+# L'historique « enhanced » est l'appel le plus cher de Helius (environ cent
+# credits). On le faisait pour 90 adresses suivies a CHAQUE scan, soit ~9 000
+# appels par jour : une cle gratuite y passait en une journee. Or la plupart de
+# ces wallets n'ont rien fait depuis le tour precedent.
+#
+# On demande donc d'abord la derniere signature du wallet (getSignaturesForAddress,
+# un credit). Si elle n'a pas change, l'historique non plus : on rend celui
+# qu'on a deja. On ne paie le gros appel que pour les wallets qui ont bouge.
+_SWAPS: dict = {}            # adresse -> {"sig", "txs", "at"}
+_SWAPS_VERROU = __import__("threading").Lock()
+SWAPS_SANS_SIG_S = 1800      # sans reponse RPC, le cache vaut encore 30 min
+
+
+def derniere_signature(address: str) -> Optional[str]:
+    """Signature la plus recente du wallet, ou None si Helius ne repond pas."""
+    if not config.HELIUS_API_KEYS:
+        return None
+    corps = {"jsonrpc": "2.0", "id": 1, "method": "getSignaturesForAddress",
+             "params": [address, {"limit": 1}]}
+    for _ in range(len(config.HELIUS_API_KEYS) + 1):
+        cle = config.helius_key()
+        try:
+            r = requests.post(f"https://mainnet.helius-rpc.com/?api-key={cle}",
+                              json=corps, timeout=15)
+            if r.status_code == 429:
+                if "max usage" in (r.text or "").lower():
+                    config.helius_a_sec(cle)
+                    continue
+                time.sleep(1.0)
+                continue
+            r.raise_for_status()
+            res = (r.json() or {}).get("result")
+            if isinstance(res, list):
+                return (res[0] or {}).get("signature") if res else ""
+            return None
+        except Exception:
+            time.sleep(0.5)
+    return None
+
+
+def swaps(address: str, limit: int = 100) -> List[dict]:
+    """Les swaps recents d'un wallet, relus seulement s'il a bouge."""
+    sig = derniere_signature(address)
+    with _SWAPS_VERROU:
+        c = _SWAPS.get(address)
+    if c is not None:
+        if sig is not None and sig == c["sig"]:
+            return c["txs"]
+        if sig is None and time.time() - c["at"] < SWAPS_SANS_SIG_S:
+            return c["txs"]
+    txs = _enhanced(address, "SWAP", limit=limit)
+    # une lecture vide sur un wallet qui a des signatures est suspecte (cle a
+    # sec, coupure) : on ne la retient pas, pour reessayer au tour suivant
+    if txs or sig == "":
+        with _SWAPS_VERROU:
+            _SWAPS[address] = {"sig": sig, "txs": txs, "at": time.time()}
+    return txs
+
+
 def fetch_swaps(mint: str, max_tx: int = 800, max_age_days: int = 30) -> List[dict]:
     """
     Remonte jusqu'à `max_tx` transactions récentes impliquant `mint`.
