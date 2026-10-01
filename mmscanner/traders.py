@@ -302,7 +302,8 @@ def verifier(log=print, envoyer: bool = None) -> int:
         from . import solana_swaps
         log("[traders] premier tour, mouvements lus sur 6 h : "
             + ", ".join(f"{n} {k}" for n, k in sorted(bilan.items()))
-            + f" — lectures Solana : {solana_swaps.bilan()}")
+            + f" — lectures Solana : {solana_swaps.bilan()}"
+            + f" — BNB Chain : {_bsc_bilan()}")
 
     # ce qui est trop vieux : on le retient, on ne le dit pas
     limite = time.time() - FRAICHEUR_S
@@ -423,6 +424,16 @@ def verifier(log=print, envoyer: bool = None) -> int:
 
 _FIL = None
 _PREMIER_TOUR = True
+_BSC_BILAN = {"at": 0.0}
+
+
+def _bsc_bilan() -> str:
+    try:
+        from . import sources_bsc
+        return (f"{sources_bsc.STATS['blocs']} blocs lus, "
+                f"{sources_bsc.STATS['echecs']} echec(s)")
+    except Exception as e:
+        return str(e)
 
 
 def boucle(log=print) -> None:
@@ -431,6 +442,10 @@ def boucle(log=print) -> None:
             verifier(log=log)
         except Exception as e:
             log(f"[traders] {e}")
+        if time.time() - _BSC_BILAN["at"] > 3600:
+            if _BSC_BILAN["at"]:
+                log(f"[traders] BNB Chain : {_bsc_bilan()}")
+            _BSC_BILAN["at"] = time.time()
         time.sleep(PAS_S)
 
 

@@ -42,6 +42,7 @@ RETARD_MAX_BLOCS = 2400        # ~30 min : au-dela, on repart du present
 LECTURE_MAX_BLOCS = 1200       # par tour, pour ne pas bloquer la boucle
 
 _SESSION = requests.Session()
+STATS = {"blocs": 0, "echecs": 0}
 _DECIMALES: Dict[str, int] = {}
 _PANNE: Dict[str, float] = {}
 
@@ -105,6 +106,7 @@ def achats(adresses: Dict[str, str], etat: dict) -> List[Dict]:
         return []
     haut = _appel("eth_blockNumber", [])
     if not haut:
+        STATS["echecs"] += 1
         return []
     haut = int(haut, 16)
     depart = int(etat.get("bloc") or 0) + 1
@@ -128,6 +130,7 @@ def achats(adresses: Dict[str, str], etat: dict) -> List[Dict]:
             if pas > pas_petit:
                 pas = pas_petit
                 continue
+            STATS["echecs"] += 1
             break                      # on reprendra ici au tour suivant
         for l in logs:
             jeton = (l.get("address") or "").lower()
@@ -146,5 +149,6 @@ def achats(adresses: Dict[str, str], etat: dict) -> List[Dict]:
                         "ts": heures.setdefault(bloc, _horodatage(bloc)),
                         "chain": "bsc"})
         etat["bloc"] = fin
+        STATS["blocs"] += fin - debut + 1
         debut = fin + 1
     return out
