@@ -176,7 +176,9 @@ def _mouvements_evm(adresse: str, depuis: float) -> List[Dict]:
     from . import sources_evm
 
     out = []
-    for chain in ("ethereum", "base", "robinhood", "bsc"):
+    # BNB Chain n'a pas d'explorateur gratuit : elle se lit a part, pour
+    # tous les traders d'un coup (voir sources_bsc)
+    for chain in ("ethereum", "base", "robinhood"):
         try:
             lignes = sources_evm.recent_buys(adresse, chain,
                                              hours=FENETRE_H) or []
@@ -278,6 +280,20 @@ def verifier(log=print, envoyer: bool = None) -> int:
                 continue
             neuf.append((nom, m))
 
+    # BNB Chain : les nouveaux blocs, pour toutes les adresses 0x a la fois
+    evm = {a: n for a, n in SURVEILLES
+           if a.startswith("0x") and not silence.muet(a)}
+    if evm and not silence.muet("traders"):
+        try:
+            from . import sources_bsc
+            for m in sources_bsc.achats(evm, vus.setdefault("bsc", {})):
+                nom = m.pop("nom")
+                bilan[nom] = bilan.get(nom, 0) + 1
+                if m["cle"] not in connus:
+                    neuf.append((nom, m))
+        except Exception as e:
+            log(f"[traders] bsc : {e}")
+
     # Au premier tour, on dit ce qu'on a pu lire : c'est la seule facon de
     # voir dans les journaux du cloud que Helius repond (le secret y est
     # masque). Zero partout pendant des heures = cle a sec, pas calme plat.
@@ -300,6 +316,7 @@ def verifier(log=print, envoyer: bool = None) -> int:
         log(f"[traders] {len(vieux)} mouvement(s) trop anciens, notes sans alerte")
 
     if not neuf:
+        _ecrire(vus)            # garde le curseur BNB Chain
         return 0
 
     # Un trader achete souvent en plusieurs fois, a quelques secondes
@@ -333,10 +350,14 @@ def verifier(log=print, envoyer: bool = None) -> int:
     except Exception:
         infos = {}
 
+    infos_min = {k.lower(): v for k, v in infos.items()}
     from .engine import is_crypto_native
     for nom, m in neuf:
         connus.add(m["cle"])
-        info = infos.get(m["mint"]) or {}
+        # les adresses EVM arrivent en minuscules des noeuds et en casse
+        # mixte de DexScreener : on compare sans tenir compte de la casse
+        info = (infos.get(m["mint"])
+                or infos_min.get(m["mint"].lower()) or {})
         # LE JETON RECU N'EST PAS TOUJOURS UNE POSITION.
         #
         # Vendre un coin, c'est recevoir de l'USDC — compte comme un "achat"
@@ -354,6 +375,10 @@ def verifier(log=print, envoyer: bool = None) -> int:
         px = float(info.get("price_usd") or 0)
         qte = float(m.get("montant") or 0)
         if px > 0 and qte > 0 and px * qte < MONTANT_MINI_USD:
+            continue
+        # Sur EVM, un jeton sans aucun marche sur DexScreener est un jeton
+        # spam envoye d'office, pas un achat : un trader achete sur une pool.
+        if (m.get("chain") or "solana") != "solana" and px <= 0:
             continue
         jour = time.strftime("%Y-%m-%d")
         cle_rep = f"{jour}:{nom}:{m['mint']}:{m['sens']}"

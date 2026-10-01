@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 # Construits a partir de la CHAINE du coin. Une adresse EVM collee sur le
 # chemin /solana/ donne une page "coin introuvable" sur DexScreener : c'est
 # arrive sur les paires Ethereum et Robinhood affichees hors du radar.
-GMGN_SLUGS = {"solana": "sol", "ethereum": "eth", "base": "base"}
+GMGN_SLUGS = {"solana": "sol", "ethereum": "eth", "base": "base", "bsc": "bsc"}
 CHAINES_CONNUES = {"solana", "ethereum", "base", "robinhood", "bsc", "arbitrum",
                    "polygon", "avalanche", "optimism", "sui", "tron"}
 
@@ -21,8 +21,22 @@ def dex_link(chain: str, adresse: str) -> str:
     c = (chain or "").strip().lower()
     if not adresse:
         return "https://dexscreener.com/"
+
+    # LA FORME DE L'ADRESSE PRIME SUR LA CHAINE ENREGISTREE.
+    # Une adresse en 0x ne peut pas etre sur Solana, et une adresse base58 ne
+    # peut etre sur aucune de nos chaines EVM. Quand les deux se contredisent,
+    # c'est la chaine qui est fausse — elle vient de nos fiches, l'adresse vient
+    # du jeton lui-meme. On ne fabrique donc pas une URL impossible : on passe
+    # par la recherche, qui retombe toujours sur la bonne courbe.
+    evm = adresse.startswith("0x")
+    if evm and c == "solana":
+        return f"https://dexscreener.com/search?q={adresse}"
+    if not evm and c in ("ethereum", "base", "robinhood", "bsc", "arbitrum",
+                         "polygon", "avalanche", "optimism"):
+        c = "solana"
+
     if c not in CHAINES_CONNUES:
-        if adresse.startswith("0x"):        # EVM, chaine inconnue
+        if evm:                             # EVM, chaine inconnue
             return f"https://dexscreener.com/search?q={adresse}"
         c = "solana"                        # adresse base58 : c'est du Solana
     return f"https://dexscreener.com/{c}/{adresse}"
@@ -79,6 +93,19 @@ class Pair:
     swing_low: Optional[float] = None    # en prix
     swing_high: Optional[float] = None
     rsi_note: str = ""
+
+    # plancher (methode MikeMike) — voir mmscanner/plancher.py
+    plancher: Optional[int] = None            # 0 a 5 criteres coches
+    plancher_detail: List[Dict[str, Any]] = field(default_factory=list)
+    plancher_compression: bool = False        # resistance descendante sur plancher tenu
+    plancher_distance: Optional[float] = None  # ecart du prix au plancher, en part
+    plancher_bas: Optional[float] = None      # plus bas des 30 derniers jours
+    plancher_haut: Optional[float] = None     # plus haut des 30 derniers jours
+    volume_sens: str = ""                     # "bon" / "mauvais" selon la phase
+    porteurs_montent: Optional[Dict[str, Any]] = None
+    porteurs_vitesse: Optional[Dict[str, Any]] = None   # croissance ramenee a 24 h
+    diplome: Optional[Dict[str, Any]] = None            # vient de bonder et tient
+    plancher_note: str = ""
 
     # couche wallet (Helius)
     holders: Optional[int] = None
