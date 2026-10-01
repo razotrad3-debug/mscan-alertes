@@ -9,7 +9,13 @@ name: Alertes MSCAN
 
 on:
   schedule:
-    - cron: "0 */6 * * *"     # relance la fenetre toutes les 6 h
+    # Toutes les heures, pas toutes les six : GitHub ne garantit pas ses
+    # lancements programmes. Celui de 18 h UTC du 30/09 n'est jamais parti,
+    # et le bot s'est tu quatre heures — pendant que Pika tradait QUANT.
+    # Une session en cours n'est jamais coupee (voir concurrency) : le
+    # lancement de l'heure attend en file et prend le relais des qu'elle
+    # s'arrete. Le depot est public, les minutes ne coutent rien.
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -25,6 +31,10 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 350       # 5 h 50 : on rend la main avant la fenetre suivante
+    # les dates du bot (« Aujourd'hui », une alerte par coin et par jour)
+    # suivent l'heure de Paris, comme l'application
+    env:
+      TZ: Europe/Paris
     steps:
       - uses: actions/checkout@v4
 

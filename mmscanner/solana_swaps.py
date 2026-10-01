@@ -36,6 +36,9 @@ import config
 # aucune transaction. PublicNode prend le relais.
 PUBLICS = ("https://api.mainnet-beta.solana.com",
            "https://solana-rpc.publicnode.com")
+# Troisieme acces, tres bride (une requete toutes les deux ou trois
+# secondes) : reserve aux lectures prioritaires, les traders suivis.
+PUBLICS_PRIORITAIRES = PUBLICS + ("https://solana.leorpc.com/?api_key=FREE",)
 
 QUOTES = {
     "So11111111111111111111111111111111111111112",   # WSOL
@@ -54,6 +57,7 @@ _SESSION.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4,
 # commune a tous les fils : une requete publique toutes les 0,25 s.
 _ECART_PUBLIC_S = 0.25
 _ECART_HELIUS_S = 0.15        # l'offre gratuite de Helius plafonne a 10 req/s
+_ECART_LENT_S = 2.5           # le troisieme acces, tres bride
 _PROCHAIN = {"helius": 0.0}
 _RYTHME = threading.Lock()
 _EN_PANNE: Dict[str, float] = {}
@@ -63,7 +67,8 @@ STATS = {"public": 0, "helius": 0, "echec": 0, "depuis": time.time()}
 
 
 def _attendre_tour(voie: str) -> None:
-    ecart = _ECART_HELIUS_S if voie == "helius" else _ECART_PUBLIC_S
+    ecart = (_ECART_HELIUS_S if voie == "helius"
+             else _ECART_LENT_S if "leorpc" in voie else _ECART_PUBLIC_S)
     with _RYTHME:
         maintenant = time.time()
         t = max(maintenant, _PROCHAIN.get(voie, 0.0))
@@ -72,15 +77,27 @@ def _attendre_tour(voie: str) -> None:
         time.sleep(t - maintenant)
 
 
-def _rpc(methode: str, params: list):
+def _rpc(methode: str, params: list, prioritaire: bool = False):
+    """
+    Un appel RPC Solana. Deux regimes :
+
+    - ordinaire (les 90 wallets suivis) : acces publics seulement, un echec
+      met l'acces de cote une minute. Rien n'est paye.
+    - prioritaire (les traders dont chaque achat doit etre notifie) : file a
+      part — ils ne font plus la queue derriere les 90 wallets —, plus
+      d'essais, un troisieme acces, et Helius en dernier recours. Depuis les
+      machines de GitHub, sept lectures sur dix echouaient ; un achat de Pika
+      pouvait donc passer entre les mailles.
+    """
     corps = {"jsonrpc": "2.0", "id": 1, "method": methode, "params": params}
-    # 1) les RPC publics, gratuits : deux essais chacun avant de payer quoi
-    #    que ce soit. Un point d'acces qui echoue est mis de cote une minute.
-    for url in PUBLICS:
-        if time.time() < _EN_PANNE.get(url, 0.0):
+    acces = PUBLICS_PRIORITAIRES if prioritaire else PUBLICS
+    essais = 3 if prioritaire else 2
+    # 1) les RPC publics, gratuits
+    for url in acces:
+        if not prioritaire and time.time() < _EN_PANNE.get(url, 0.0):
             continue
-        for essai in range(2):
-            _attendre_tour(url)
+        for essai in range(essais):
+            _attendre_tour(url + ("!" if prioritaire else ""))
             try:
                 r = _SESSION.post(url, json=corps, timeout=20)
                 if r.status_code == 429:
@@ -93,9 +110,12 @@ def _rpc(methode: str, params: list):
                     return j.get("result")
             except Exception:
                 time.sleep(0.3)
-        _EN_PANNE[url] = time.time() + 60
-    # 2) Helius, un credit, en changeant de cle si l'une est a sec
-    for essai in range(len(config.HELIUS_API_KEYS) + 2):
+        if not prioritaire:
+            _EN_PANNE[url] = time.time() + 60
+    # 2) Helius, un credit, en changeant de cle si l'une est a sec — pour les
+    #    seules lectures prioritaires : quelques milliers de credits par jour,
+    #    la ou les 90 wallets en auraient brule des centaines de milliers
+    for essai in range(len(config.HELIUS_API_KEYS) + 2 if prioritaire else 0):
         cle = config.helius_key()
         if not cle:
             break
@@ -217,9 +237,10 @@ def _sauver(force: bool = False) -> None:
 _charger()
 
 
-def mouvements(adresse: str, depuis: float, limite: int = 25) -> List[Dict]:
+def mouvements(adresse: str, depuis: float, limite: int = 25,
+               prioritaire: bool = False) -> List[Dict]:
     """Achats et ventes de `adresse` posterieurs a `depuis` (horodatage)."""
-    sigs = _rpc("getSignaturesForAddress", [adresse, {"limit": limite}])
+    sigs = _rpc("getSignaturesForAddress", [adresse, {"limit": limite}], prioritaire)
     if not isinstance(sigs, list):
         return []
     out = []
@@ -232,7 +253,8 @@ def mouvements(adresse: str, depuis: float, limite: int = 25) -> List[Dict]:
             deja = _LUES.get(adresse + ":" + sig)
         if deja is None:
             tx = _rpc("getTransaction", [sig, {"encoding": "jsonParsed",
-                                               "maxSupportedTransactionVersion": 0}])
+                                               "maxSupportedTransactionVersion": 0}],
+                      prioritaire)
             if tx is None:
                 continue          # pas memorise : on reessaiera au tour suivant
             deja = _analyser(tx, adresse)

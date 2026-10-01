@@ -128,11 +128,11 @@ GARDE = 4000            # signatures retenues, pour ne pas reannoncer
 # vieux de deux heures n'est plus une occasion, c'est une nouvelle perimee.
 #
 # Tout ce qui est plus vieux que ce delai est donc enregistre en silence.
-FRAICHEUR_S = 20 * 60
+FRAICHEUR_S = 30 * 60
 MONTANT_MINI_USD = 50     # en dessous : poussiere ou airdrop, pas un trade
-# Un trader qui renforce une minute apres son premier achat ne dit rien de
-# neuf : un seul message par trader, jeton et sens sur cette duree.
-REPETITION_S = 30 * 60
+# UNE notification par trader, par coin et par sens, dans la journee.
+# Pika est entre sur QUANT, en est sorti, y est revenu, quatre fois en deux
+# heures : c'est un seul coin, donc un seul « BUY », et un seul « SELL ».
 
 # Un trader achete aussi du SOL ou de l'USDC pour payer : ce n'est pas un
 # mouvement de conviction.
@@ -168,7 +168,7 @@ def _mouvements_solana(adresse: str, depuis: float) -> List[Dict]:
     """Achats ET ventes d'un wallet Solana (voir solana_swaps : RPC standard,
     un credit au plus par appel, au lieu des cent de l'API enhanced)."""
     from . import solana_swaps
-    return solana_swaps.mouvements(adresse, depuis, limite=40)
+    return solana_swaps.mouvements(adresse, depuis, limite=40, prioritaire=True)
 
 
 def _mouvements_evm(adresse: str, depuis: float) -> List[Dict]:
@@ -355,9 +355,10 @@ def verifier(log=print, envoyer: bool = None) -> int:
         qte = float(m.get("montant") or 0)
         if px > 0 and qte > 0 and px * qte < MONTANT_MINI_USD:
             continue
-        cle_rep = f"{nom}:{m['mint']}:{m['sens']}"
+        jour = time.strftime("%Y-%m-%d")
+        cle_rep = f"{jour}:{nom}:{m['mint']}:{m['sens']}"
         recents = vus.setdefault("recents", {})
-        if time.time() - float(recents.get(cle_rep) or 0) < REPETITION_S:
+        if cle_rep in recents:
             continue
         texte = _message(nom, m, info)
         if envoyer and tg.send(texte):
@@ -379,13 +380,18 @@ def verifier(log=print, envoyer: bool = None) -> int:
                         "grade": "", "par": nom,
                     }
                     tg._save(d_env)
+                    # publie tout de suite la liste du jour : sinon le coin
+                    # n'apparaissait dans l'application qu'au passage suivant,
+                    # jusqu'a dix minutes plus tard
+                    tg.publier_jour(log=log)
                 except Exception as e:
                     log(f"[traders] jour : {e}")
 
     vus["cles"] = list(connus)[-GARDE:]
-    limite_rep = time.time() - REPETITION_S
+    # on ne garde que la journee en cours
+    jour = time.strftime("%Y-%m-%d")
     vus["recents"] = {k: t for k, t in (vus.get("recents") or {}).items()
-                      if t >= limite_rep}
+                      if k.startswith(jour + ":")}
     _ecrire(vus)
     return envoyes
 

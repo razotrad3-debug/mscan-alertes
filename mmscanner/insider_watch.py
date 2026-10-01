@@ -53,6 +53,11 @@ MIN_MC = 20_000
 MIN_LIQ = 15_000
 MAX_PAR_HEURE = 4       # plafond global, quoi qu'il arrive
 EVM_TOUS_LES_S = 300.0     # cadence des adresses EVM (3 requetes chacune)
+# Les 90 wallets Solana toutes les 3 min, plus chaque minute : depuis les
+# machines de GitHub, les acces publics refusaient sept lectures sur dix a ce
+# rythme, et les traders suivis (Pika, Donny...) en faisaient les frais.
+SOL_TOUS_LES_S = 180.0
+_SOL_PROCHAIN = 0.0
 _EVM_PROCHAIN = 0.0        # garde-fou : jamais plus de 6 alertes d'un coup
 
 
@@ -121,8 +126,11 @@ def poll(log=print, amorcage: bool = False) -> int:
     # elles coutent trois requetes chacune (Ethereum, Base, Robinhood). Elles
     # etaient purement et simplement exclues : c'est ce qui faisait arriver
     # les paires Robinhood et Ethereum bien apres le setup.
-    global _EVM_PROCHAIN
-    cibles = [(a, l) for a, l in suivis if not a.startswith("0x")]
+    global _EVM_PROCHAIN, _SOL_PROCHAIN
+    cibles = []
+    if amorcage or maintenant >= _SOL_PROCHAIN:
+        _SOL_PROCHAIN = maintenant + SOL_TOUS_LES_S
+        cibles += [(a, l) for a, l in suivis if not a.startswith("0x")]
     if maintenant >= _EVM_PROCHAIN:
         _EVM_PROCHAIN = maintenant + EVM_TOUS_LES_S
         cibles += [(a, l) for a, l in suivis if a.startswith("0x")]
