@@ -15,7 +15,8 @@ BASE = "https://api.geckoterminal.com/api/v2"
 HEADERS = {"Accept": "application/json;version=20230302"}
 NET = "solana"
 # correspondance chaine DexScreener -> identifiant reseau GeckoTerminal
-GECKO_NET = {"solana": "solana", "ethereum": "eth", "base": "base"}
+GECKO_NET = {"solana": "solana", "ethereum": "eth", "base": "base",
+             "bsc": "bsc", "binance-smart-chain": "bsc", "bnb": "bsc"}
 
 
 def net_for(chain: str):

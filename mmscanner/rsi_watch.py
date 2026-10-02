@@ -29,7 +29,20 @@ SURVEILLES: List[tuple] = [
     ("Bb4jR951QtVjeFAYFLBYXDSMKjbTDroCLPbFLdd7pump", "MEMECOIN"),
     ("9sfCHMLWSVy6MD6zr7pR1gD3qbT7C6K1E3dMf2ZBpump", "LAYOOO"),
     ("HcfnJxLov6tY8i1dq9uYRRZKCvxADPpovcfkyXzdpump", "CHONKETHA"),
+    ("6NwarBvDkXhByqVp2Qkq5i9XbtA2B3Bwe8SWGu9vpump", "CUPSEY"),
+    # 旺柴 sur BNB Chain. L'adresse donnee (0x223c...) etait celle de la paire
+    # PancakeSwap 旺柴/WBNB : c'est le jeton qu'on suit, la pool s'en deduit.
+    ("0x14F6A94909C407854390Aa2d2462a3095D317777", "WANG CHAI"),
 ]
+
+# La chaine de chaque coin qui n'est pas sur Solana.
+CHAINES: Dict[str, str] = {
+    "0x14F6A94909C407854390Aa2d2462a3095D317777": "bsc",
+}
+
+
+def _chaine(mint: str) -> str:
+    return CHAINES.get(mint, "solana")
 
 # La table des alertes, lue sur les alertes TradingView existantes.
 #   unite -> {seuil: consigne}
@@ -183,10 +196,11 @@ def verifier(log=print, envoyer: bool = None) -> int:
     for mint, nom in SURVEILLES:
         if silence.muet(mint):
             continue          # suspendu depuis l'application
-        pool = gecko.pool_for_token(mint, "solana")
+        chaine = _chaine(mint)
+        pool = gecko.pool_for_token(mint, chaine)
         if not pool:
             continue
-        rsis = _rsi_par_unite(_bougies(pool, "solana"))
+        rsis = _rsi_par_unite(_bougies(pool, chaine))
         if not rsis:
             continue
         # ("haut", table) : le seuil se franchit en montant ; ("bas", table) :
@@ -258,10 +272,11 @@ def etat_actuel() -> Dict[str, Dict[str, float]]:
     from . import sources_gecko as gecko
     out = {}
     for mint, nom in SURVEILLES:
-        pool = gecko.pool_for_token(mint, "solana")
+        chaine = _chaine(mint)
+        pool = gecko.pool_for_token(mint, chaine)
         if not pool:
             out[nom] = {}
             continue
         out[nom] = {u: round(v[1], 1)
-                    for u, v in _rsi_par_unite(_bougies(pool, "solana")).items()}
+                    for u, v in _rsi_par_unite(_bougies(pool, chaine)).items()}
     return out
