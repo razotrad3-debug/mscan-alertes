@@ -1,0 +1,43 @@
+# Collecte ponctuelle de bougies pour l'analyse des coins notifies.
+# Repartie sur plusieurs machines : GeckoTerminal limite le debit par adresse.
+name: Collecte bougies (analyse)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  collecte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-bot.txt
+      - name: Collecter
+        env:
+          MSCAN_LIGNES_KEY: ${{ secrets.MSCAN_LIGNES_KEY }}
+        run: |
+          python - <<'PY'
+          from mmscanner import trendlines
+          open("cibles.json", "wb").write(trendlines._boite().decrypt(open("analyse_cibles.enc", "rb").read()))
+          PY
+          python outils/collecte_bougies.py ${{ matrix.part }} 8
+          python - <<'PY'
+          import io, tarfile
+          from mmscanner import trendlines
+          t = io.BytesIO()
+          with tarfile.open(fileobj=t, mode="w:gz") as tar: tar.add("bougies")
+          open("bougies.enc", "wb").write(trendlines._boite().encrypt(t.getvalue()))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bougies-${{ matrix.part }}
+          path: bougies.enc
+          retention-days: 1
