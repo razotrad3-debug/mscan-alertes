@@ -1,0 +1,72 @@
+# Export ponctuel de la memoire du bot (photos de holders, journal), pour
+# l'analyse hors ligne. Lance a la main. Le depot est public : l'archive est
+# chiffree avec la cle des lignes avant d'etre deposee.
+name: Export etat MSCAN
+
+on:
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installer les dependances
+        run: pip install -r requirements-bot.txt
+
+      # meme liste de chemins que alertes.yml : la version du cache en depend
+      - name: Restaurer l'etat
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            telegram_sent.json
+            telegram_msgids.json
+            insider_seen.json
+            expansion_watch.json
+            trendlines.json
+            traders_vus.json
+            rsi_watch.json
+            solana_swaps.json
+            journal_alertes.json
+            paires_nees.json
+            pool_cache.json
+            holdings_cache.json
+            holdings.json
+            flow_snapshots
+          key: mscan-export-${{ github.run_id }}
+          restore-keys: mscan-etat-
+
+      - name: Archiver et chiffrer
+        env:
+          MSCAN_LIGNES_KEY: ${{ secrets.MSCAN_LIGNES_KEY }}
+        run: |
+          python - <<'PY'
+          import io, os, tarfile
+          from mmscanner import trendlines
+          boite = trendlines._boite()
+          assert boite is not None, "cle absente"
+          tampon = io.BytesIO()
+          with tarfile.open(fileobj=tampon, mode="w:gz") as tar:
+              # ni holdings ni wallets : seulement des donnees publiques on-chain
+              for nom in ("flow_snapshots", "journal_alertes.json", "expansion_watch.json",
+                          "insider_seen.json", "telegram_sent.json", "paires_nees.json"):
+                  if os.path.exists(nom):
+                      tar.add(nom)
+          brut = tampon.getvalue()
+          open("etat.enc", "wb").write(boite.encrypt(brut))
+          print("archive", len(brut), "octets ; photos :",
+                len(os.listdir("flow_snapshots")) if os.path.isdir("flow_snapshots") else 0)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: etat
+          path: etat.enc
+          retention-days: 1
