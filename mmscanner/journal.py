@@ -97,6 +97,9 @@ def _photo(p) -> dict:
         "smart_holders": v("smart_holders", 0),
         "smart_accumulating": v("smart_accumulating", 0),
         "rsi_15m": v("rsi_15m"), "rsi_1h": v("rsi_1h"), "rsi_4h": v("rsi_4h"),
+        # profil des holders au moment de l'alerte (voir profil.py)
+        "h_mediane": v("h_mediane"), "h_part_100_1k": v("h_part_100_1k"),
+        "h_profil": v("h_profil"),
     }
 
 

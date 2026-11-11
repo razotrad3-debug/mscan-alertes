@@ -299,6 +299,16 @@ def format_alert(p) -> str:
         f"- Market Cap : `{_usd(p.market_cap)}`",
     ]
 
+    # profil des holders, juste sous la phase : c'est la seule mesure qui a
+    # separe les futurs x5 du reste (voir profil.py)
+    try:
+        from mmscanner import profil as _profil
+        lp = _profil.ligne(getattr(p, "profil", None) or {})
+        if lp:
+            lines.insert(2, lp)
+    except Exception:
+        pass
+
     zone, cut_mc = intel.get("zone"), intel.get("cut_mc")
 
     # niveaux d'abord, objectifs ensuite, separes par une ligne vide
@@ -352,6 +362,39 @@ def format_alert(p) -> str:
     lines += ["", f"[DexScreener]({p.dex_url}) · [GMGN]({p.gmgn_url})"]
     return "\n".join(lines)
 
+
+
+_FABRIQUES_VUS = set()
+
+
+def _noter_fabrique(p, raison: str) -> None:
+    """Garde la trace des coins ecartes, pour pouvoir verifier le filtre.
+
+    Le fichier vit dans flow_snapshots/ : ce dossier est deja dans la memoire
+    conservee d'une session a l'autre, et ajouter un chemin a cette liste
+    en changerait la version — toute la memoire du bot serait perdue.
+    """
+    if p.mint in _FABRIQUES_VUS:
+        return
+    _FABRIQUES_VUS.add(p.mint)
+    print(f"[profil] {p.symbol} ecarte, coin fabrique : {raison}")
+    try:
+        chemin = os.path.join(config.SNAPSHOT_DIR, "_fabriques.json")
+        os.makedirs(config.SNAPSHOT_DIR, exist_ok=True)
+        try:
+            with open(chemin, "r", encoding="utf-8") as f:
+                d = json.load(f)
+        except Exception:
+            d = {}
+        if p.mint not in d:
+            d[p.mint] = {"at": time.time(), "symbol": p.symbol, "raison": raison,
+                         "mc": getattr(p, "market_cap", 0), "liq": getattr(p, "liquidity_usd", 0),
+                         "vol_h1": getattr(p, "vol_h1", 0), "pair": getattr(p, "pair_address", ""),
+                         "grade": p.grade, "phase": getattr(p, "phase", "")}
+            with open(chemin, "w", encoding="utf-8") as f:
+                json.dump(d, f)
+    except Exception as e:
+        print(f"[profil] trace : {e}")
 
 
 def notify_new(pairs: List, grades=None) -> int:
@@ -410,6 +453,28 @@ def notify_new(pairs: List, grades=None) -> int:
         if prev.get("at", 0) > fenetre:
             supprimees += 1
             continue          # deja vu dans les 12 h, et rien de neuf
+
+        # PROFIL : coin fabrique ? holders solides ? (etude du 11/11/2026,
+        # voir profil.py). Un coin fabrique n'est pas un setup : des bots
+        # s'echangent le coin pour dessiner une belle courbe, puis la
+        # liquidite part. Un tiers des alertes en etaient.
+        jug = {}
+        try:
+            from mmscanner import profil
+            jug = profil.juger(p)
+        except Exception as e:
+            print(f"[profil] {e}")
+        if jug.get("fabrique"):
+            supprimees += 1
+            _noter_fabrique(p, jug["fabrique"])
+            continue
+        try:
+            p.profil = jug
+            p.h_mediane = jug.get("mediane")
+            p.h_part_100_1k = jug.get("part_100_1k")
+            p.h_profil = jug.get("holders") or None
+        except Exception:
+            pass
 
         if send(format_alert(p)):
             sent[p.mint] = {"at": now, "jour": aujourdhui,
