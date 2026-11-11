@@ -90,6 +90,11 @@ def _format(coin: dict) -> str:
         "",
         f"- Market Cap : `{tg._usd(coin.get('mc'))}`",
     ]
+    try:
+        from . import profil
+        lines.insert(2, profil.ligne({"holders": coin.get("h_profil")}))
+    except Exception:
+        pass
     if coin.get("chg_h1") is not None:
         lines.append(f"- 1h : `{coin['chg_h1']:+.0f}%`  \u00b7  24h : `{coin.get('chg_h24', 0):+.0f}%`")
 
@@ -234,6 +239,18 @@ def poll(log=print, amorcage: bool = False) -> int:
         from mmscanner import silence as _sil
         if _sil.muet("coins"):
             continue
+        # coin fabrique ? potentiel ? (voir profil.py)
+        try:
+            from mmscanner import profil
+            jug = profil.juger_mint(c["mint"], info.get("price_usd") or 0,
+                                    c.get("symbol") or "")
+        except Exception:
+            jug = {}
+        if jug.get("fabrique"):
+            log(f"[insider] {c.get('symbol')} ecarte, coin fabrique : {jug['fabrique']}")
+            vu[c["mint"]] = {"at": maintenant, "par": c["par"], "fabrique": True}
+            continue
+        c["h_profil"] = jug.get("holders") or ""
         if tg.send(_format(c)):
             vu[c["mint"]] = {"at": maintenant, "par": c["par"]}
             envoyes += 1

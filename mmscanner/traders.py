@@ -234,6 +234,9 @@ def _message(nom: str, m: Dict, info: Dict) -> str:
     mc = info.get("market_cap") or info.get("mc")
     if mc:
         lignes[-1] += f" — {mc/1e6:.2f} M$" if mc >= 1e6 else f" — {mc/1e3:.0f} K$"
+    # la note du coin, sur les achats seulement : a la vente elle ne sert plus
+    if m.get("note"):
+        lignes.append(m["note"])
     lignes += ["", f"[DexScreener]({dex_link(chain, m['mint'])})"
                    f" · [GMGN]({gmgn_link(chain, m['mint'])})"]
     return "\n".join(lignes)
@@ -386,6 +389,17 @@ def verifier(log=print, envoyer: bool = None) -> int:
         recents = vus.setdefault("recents", {})
         if cle_rep in recents:
             continue
+        # POTENTIEL DU COIN (voir profil.py). On n'ecarte rien ici : l'achat
+        # d'un trader suivi est une information en soi, meme sur un coin
+        # fabrique — mais on le dit.
+        if envoyer and m["sens"] == "achat" and (m.get("chain") or "solana") == "solana":
+            try:
+                from . import profil
+                jug = profil.juger_mint(m["mint"], px, info.get("symbol") or "")
+                m["note"] = ("⛔ Coin fabriqué" if jug.get("fabrique")
+                             else profil.ligne(jug))
+            except Exception:
+                pass
         texte = _message(nom, m, info)
         if envoyer and tg.send(texte):
             envoyes += 1

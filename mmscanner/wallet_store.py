@@ -147,7 +147,21 @@ def export_watchlist(min_coins: int = 2, top_n: int = None) -> int:
     """
     if top_n is None:
         top_n = getattr(config, "WATCHLIST_MAX", 60)
-    rows = ranked(min_coins=min_coins)[:top_n]
+    # LES WALLETS DE L'USINE NE SONT PAS DE LA SMART MONEY.
+    #
+    # « Early sur N pumps » decrit aussi, mot pour mot, les bots qui fabriquent
+    # les faux coins : ils sont les premiers acheteurs de chaque lancement de
+    # leur usine, et ces lancements montent tous. L'etude du 11/11/2026 a
+    # trouve 50 des 60 wallets de cette liste dans une cinquantaine de coins
+    # fabriques chacun, et dans aucun vrai coin. Le critere « smart-money
+    # present » montait donc la note des pieges.
+    rows = ranked(min_coins=min_coins)
+    try:
+        from . import profil
+        rows = [w for w in rows if not profil.nb_usine([w["address"]])]
+    except Exception:
+        pass
+    rows = rows[:top_n]
     lines = ["# Généré par `python -m mmscanner.discover_wallets`",
              "# adresse  label — early sur N pumps\n"]
     for w in rows:

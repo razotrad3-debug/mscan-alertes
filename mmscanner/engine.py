@@ -117,6 +117,18 @@ def scan(smart_wallets: List[str], log=print, progress=None, on_scored=None) -> 
     cinq minutes avant que le coin n'apparaisse dans le Radar : le scan ne
     publiait ses resultats qu'une fois termine.
     """
+    # les wallets de l'usine a faux coins ne comptent pas comme smart money
+    # (voir profil.py et wallet_store.export_watchlist)
+    try:
+        from . import profil as _profil
+        avant = len(smart_wallets or [])
+        smart_wallets = [l for l in (smart_wallets or [])
+                         if not _profil.nb_usine([l.split()[0]])]
+        if len(smart_wallets) < avant:
+            log(f"[scan] {avant - len(smart_wallets)} wallet(s) d'usine retires des wallets suivis")
+    except Exception:
+        pass
+
     def _p(pct, phase, detail=""):
         if progress:
             try:

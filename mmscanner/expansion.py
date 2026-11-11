@@ -377,6 +377,11 @@ def _message(e: dict, d: dict) -> str:
         "C'est la seconde expansion qui se joue ici.",
     ]
     try:
+        from mmscanner import profil
+        lignes.insert(2, profil.ligne({"holders": e.get("h_profil")}))
+    except Exception:
+        pass
+    try:
         from mmscanner import defense
         dd = defense.analyser(e.get("mint"), chain, d.get("pair") or "")
         if dd.get("alertes"):
@@ -558,6 +563,17 @@ def poll(log=print, envoyer: bool = None) -> int:
         from mmscanner import silence as _sil
         if _sil.muet("coins"):
             continue
+        # coin fabrique ? potentiel ? (voir profil.py)
+        try:
+            from mmscanner import profil
+            jug = profil.juger_mint(m, x.get("price_usd") or 0, x.get("symbol") or "")
+        except Exception:
+            jug = {}
+        if jug.get("fabrique"):
+            log(f"[expansion] {x.get('symbol')} ecarte, coin fabrique : {jug['fabrique']}")
+            e["alerte_at"] = maintenant
+            continue
+        e["h_profil"] = jug.get("holders") or None
         if tg.send(_message(e, x)):
             envoyees += 1
             e["alerte_at"] = maintenant

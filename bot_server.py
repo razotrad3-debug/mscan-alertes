@@ -157,6 +157,7 @@ def main():
     _apprentissage = {"at": 0.0}
     _bilan_rpc = {"at": time.time()}
     _liste_jour = {"at": 0.0}
+    _reperes_publi = {"at": 0.0}
 
     def _veille():
         try:
@@ -192,6 +193,16 @@ def main():
                 journal.suivre()
             except Exception as e:
                 print(f"[journal] {e}")
+            # le registre de tout ce que le bot a photographie : c'est lui
+            # qui permet a l'application de completer sa liste Win apres
+            # etre restee fermee (voir holder_flow.reperes)
+            try:
+                if time.time() - _reperes_publi["at"] > 1800:
+                    _reperes_publi["at"] = time.time()
+                    from mmscanner import holder_flow, partage
+                    partage.publier("reperes.enc", holder_flow.reperes())
+            except Exception as e:
+                print(f"[reperes] {e}")
             # la liste du jour part meme vide : sans ca, on ne distingue pas
             # "aucune alerte aujourd'hui" de "la publication est cassee"
             try:

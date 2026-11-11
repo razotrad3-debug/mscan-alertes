@@ -29,9 +29,31 @@ D'OU VIENNENT CES REGLES
        graphique, ni les volumes, ni la note du scanner ne font mieux que le
        hasard sur cet echantillon.
 
-On affiche le profil, on ne decide pas a la place de l'utilisateur — sauf pour
-les coins fabriques, qui ne sont pas des setups mais des pieges.
+    3. LES WALLETS DE L'USINE SE RECONNAISSENT (complement du 11 novembre).
+       Les coins fabriques sont tenus par les memes wallets d'un lancement a
+       l'autre : 24 709 wallets vus dans au moins six coins, TOUS fabriques,
+       jamais dans un vrai. Test honnete — liste apprise sur la premiere
+       moitie de la periode, appliquee a la seconde : des que dix de ces
+       wallets figurent parmi les holders, 108 coins signales sur 109 etaient
+       fabriques, aucun gagnant perdu. Cette marque se lit sur la photo des
+       holders, sans rien savoir du volume : elle vaut aussi pour les coins
+       que le scan n'a pas notes.
+       Les 50 « smart wallets » les mieux classes de l'application etaient de
+       ceux-la : presents dans 50 coins fabriques chacun, dans aucun vrai.
+
+    4. LES KOL ET WALLETS SUIVIS NE PREDISENT PAS LES x5. 134 vrais coins
+       tenus par au moins un KOL nomme : 6,7 % de x5, contre 7,9 % pour
+       l'ensemble. Leur presence dit seulement que le coin n'est pas fabrique
+       (3 % de fabriques la ou ils sont, contre 34 %).
+
+LA NOTE « POTENTIEL » affichee sur chaque alerte resume le point 2 :
+    eleve  = holders solides   (x5 : 12 % de tous les coins, 21 % des alertes)
+    moyen  = entre les deux    (x5 :  7 %,                   14 %)
+    faible = holders faibles   (x5 :  2 %,                    4 %, aucun x10)
+Les coins fabriques, eux, ne sont pas notes : ils ne partent pas.
 """
+import hashlib
+import os
 import time
 from typing import Optional
 
@@ -49,6 +71,33 @@ FAIBLE_MEDIANE = 8.0
 FAIBLE_PART = 0.13
 
 PHOTO_FRAICHE_S = 1800
+
+# wallets de l'usine : empreintes de 4 octets (sha256 de l'adresse), triees.
+# On ne garde pas les adresses : la liste sert a compter, pas a designer.
+USINE_FICHIER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "usine.bin")
+USINE_MINI = 10               # wallets d'usine parmi les holders
+_USINE = None
+
+
+def _usine() -> frozenset:
+    global _USINE
+    if _USINE is None:
+        try:
+            with open(USINE_FICHIER, "rb") as f:
+                brut = f.read()
+            _USINE = frozenset(brut[i:i + 4] for i in range(0, len(brut) - 3, 4))
+        except Exception:
+            _USINE = frozenset()
+    return _USINE
+
+
+def nb_usine(adresses) -> int:
+    """Combien de ces adresses sont des wallets connus de l'usine."""
+    u = _usine()
+    if not u:
+        return 0
+    return sum(1 for w in adresses
+               if hashlib.sha256(w.encode()).digest()[:4] in u)
 
 # Pools, routeurs, plateformes : presents chez plus d'un coin sur cinq, ce ne
 # sont pas des holders.
@@ -117,7 +166,8 @@ def mesurer(photo: dict, prix: float = 0.0) -> Optional[dict]:
     tri = sorted(h.items(), key=lambda kv: -kv[1])
     pool = {w for w, b in tri[:3] if w in INFRA or b / offre > 0.12}
     usd = [b * px for w, b in tri if w not in pool and w not in INFRA]
-    o = {"n": len(h), "coffre": h.get(COFFRE, 0.0) / offre}
+    o = {"n": len(h), "coffre": h.get(COFFRE, 0.0) / offre,
+         "usine": nb_usine(h)}
     if px > 0 and usd:
         usd.sort()
         n = len(usd)
@@ -154,32 +204,73 @@ def holders(mint: str, prix: float, symbole: str = "") -> Optional[dict]:
     return mesurer(photos[-1], prix)
 
 
+def _marque_holders(m: Optional[dict]) -> Optional[str]:
+    """Coin fabrique, d'apres la seule photo des holders ? La raison, ou None."""
+    if not m:
+        return None
+    if m.get("coffre", 0) >= COFFRE_MINI:
+        return f"wallet-coffre de l'usine ({m['coffre'] * 100:.0f} % de l'offre)"
+    if m.get("usine", 0) >= USINE_MINI:
+        return f"{m['usine']} wallets de l'usine parmi les holders"
+    return None
+
+
+def potentiel(holders_: str) -> str:
+    """'eleve', 'moyen', 'faible' — ou '' quand on n'a pas pu mesurer."""
+    return {"solides": "eleve", "moyens": "moyen", "faibles": "faible"}.get(holders_ or "", "")
+
+
 def juger(p) -> dict:
     """
     Tout ce qu'il faut pour decider d'une alerte :
-      fabrique : raison (str) ou None
-      holders  : 'solides' / 'faibles' / 'moyens' / ''
+      fabrique  : raison (str) ou None
+      holders   : 'solides' / 'faibles' / 'moyens' / ''
+      potentiel : 'eleve' / 'moyen' / 'faible' / ''
       mediane, part_100_1k : les deux mesures, si connues
     """
-    out = {"fabrique": fabrique(p), "holders": "", "mediane": None, "part_100_1k": None}
+    out = {"fabrique": fabrique(p), "holders": "", "potentiel": "",
+           "mediane": None, "part_100_1k": None}
     try:
         m = holders(getattr(p, "mint", ""), float(getattr(p, "price_usd", 0) or 0),
                     getattr(p, "symbol", "") or "")
     except Exception:
         m = None
     if m:
-        if not out["fabrique"] and m.get("coffre", 0) >= COFFRE_MINI:
-            out["fabrique"] = f"wallet-coffre de l'usine ({m['coffre'] * 100:.0f} % de l'offre)"
+        if not out["fabrique"]:
+            out["fabrique"] = _marque_holders(m)
         out["holders"] = verdict(m)
+        out["potentiel"] = potentiel(out["holders"])
         out["mediane"] = m.get("mediane")
         out["part_100_1k"] = m.get("part_100_1k")
     return out
 
 
+def juger_mint(mint: str, prix: float = 0.0, symbole: str = "") -> dict:
+    """Le meme jugement pour un coin dont on n'a que l'adresse et le prix
+    (alertes d'insiders, de pullback, achats de traders) : la marque de volume
+    n'est pas disponible, celles des holders le sont."""
+    out = {"fabrique": None, "holders": "", "potentiel": "",
+           "mediane": None, "part_100_1k": None}
+    try:
+        m = holders(mint, float(prix or 0), symbole or "")
+    except Exception:
+        m = None
+    if m:
+        out["fabrique"] = _marque_holders(m)
+        out["holders"] = verdict(m)
+        out["potentiel"] = potentiel(out["holders"])
+        out["mediane"] = m.get("mediane")
+        out["part_100_1k"] = m.get("part_100_1k")
+    return out
+
+
+LIGNES = {"eleve": "🟢 Potentiel élevé",
+          "moyen": "🟡 Potentiel moyen",
+          "faible": "🔴 Potentiel faible",
+          "": "⚪ Potentiel non noté"}
+
+
 def ligne(j: dict) -> str:
-    """La ligne ajoutee a l'alerte Telegram, ou '' s'il n'y a rien a dire."""
-    if j.get("holders") == "solides":
-        return "💎 Holders solides"
-    if j.get("holders") == "faibles":
-        return "⚠️ Holders faibles"
-    return ""
+    """La note ajoutee a chaque alerte Telegram."""
+    j = j or {}
+    return LIGNES.get(j.get("potentiel") or potentiel(j.get("holders")), LIGNES[""])

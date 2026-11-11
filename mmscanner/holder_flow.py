@@ -185,7 +185,109 @@ def snapshot(mint: str, price_usd: float, force: bool = False,
     snaps.append({"ts": time.time(), "price": price_usd or 0.0,
                   "supply": supply, "holders": bal, "sym": symbol or ""})
     _save(mint, snaps)
+    try:
+        _repere_noter(mint, snaps)
+    except Exception:
+        pass
     return True
+
+
+# ── le registre des coins reperes ──────────────────────────────────
+#
+# L'application dresse la liste « Win » a partir des coins qu'ELLE a vus.
+# Fermee six semaines, elle ne connaissait aucun des mille coins que le bot
+# avait photographies entre-temps, et la liste restait a trente-deux noms.
+#
+# Le bot tient donc un registre de tout ce qu'il photographie : une ligne par
+# coin — quand, a quel prix, avec quelle offre — et il le publie chiffre.
+# L'application le relit a l'ouverture et retrouve tout le monde.
+#
+# Le registre vit DANS flow_snapshots/ : ce dossier est deja conserve d'une
+# session a l'autre, et ajouter un chemin a la liste du cache en changerait
+# la version — toute la memoire du bot serait perdue.
+REPERES_FICHIER = "_reperes.json"
+REPERES_MAX_J = 120
+_REPERES = None
+
+
+def _repere_ligne(snaps: List[dict]) -> Optional[dict]:
+    """La ligne du registre : ce qu'on savait a la PREMIERE photo."""
+    if not snaps:
+        return None
+    s0 = snaps[0]
+    sym = ""
+    for s in snaps:
+        if s.get("sym"):
+            sym = s["sym"]
+            break
+    ligne = {"at": float(s0.get("ts") or 0), "px": float(s0.get("price") or 0),
+             "sup": float(s0.get("supply") or 0), "sym": sym}
+    # coin fabrique ? la photo suffit a le dire (voir profil.py)
+    try:
+        from . import profil
+        m = profil.mesurer(s0) or {}
+        if m.get("usine", 0) >= profil.USINE_MINI or m.get("coffre", 0) >= profil.COFFRE_MINI:
+            ligne["fab"] = 1
+    except Exception:
+        pass
+    return ligne
+
+
+def reperes() -> Dict[str, dict]:
+    """Le registre. Reconstruit depuis les photos s'il n'existe pas encore."""
+    global _REPERES
+    if _REPERES is not None:
+        return _REPERES
+    chemin = os.path.join(SNAP_DIR, REPERES_FICHIER)
+    try:
+        with open(chemin, "r", encoding="utf-8") as f:
+            _REPERES = json.load(f) or {}
+        return _REPERES
+    except Exception:
+        _REPERES = {}
+    # premiere fois : on relit chaque fichier de photos, une seule fois
+    try:
+        noms = [f for f in os.listdir(SNAP_DIR)
+                if f.endswith(".json") and not f.startswith("_")]
+    except Exception:
+        noms = []
+    for nom in noms:
+        mint = nom[:-5]
+        try:
+            ligne = _repere_ligne(_load(mint))
+        except Exception:
+            ligne = None
+        if ligne and ligne["at"] and ligne["px"] and ligne["sup"]:
+            _REPERES[mint] = ligne
+    _reperes_ecrire()
+    return _REPERES
+
+
+def _reperes_ecrire() -> None:
+    limite = time.time() - REPERES_MAX_J * 86400
+    for k in [k for k, v in (_REPERES or {}).items() if v.get("at", 0) < limite]:
+        _REPERES.pop(k, None)
+    try:
+        os.makedirs(SNAP_DIR, exist_ok=True)
+        chemin = os.path.join(SNAP_DIR, REPERES_FICHIER)
+        with open(chemin + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(_REPERES or {}, f, separators=(",", ":"))
+        os.replace(chemin + ".tmp", chemin)
+    except Exception:
+        pass
+
+
+def _repere_noter(mint: str, snaps: List[dict]) -> None:
+    """Inscrit un coin a sa premiere photo ; complete son nom ensuite."""
+    d = reperes()
+    e = d.get(mint)
+    if e and (e.get("sym") or not snaps[-1].get("sym")):
+        return
+    ligne = _repere_ligne(snaps)
+    if not ligne or not (ligne["at"] and ligne["px"] and ligne["sup"]):
+        return
+    d[mint] = ligne
+    _reperes_ecrire()
 
 
 def _nearest(snaps: List[dict], target_ts: float) -> Optional[dict]:
