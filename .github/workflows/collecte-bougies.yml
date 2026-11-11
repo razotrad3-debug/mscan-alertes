@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [0, 1, 2, 3, 4, 5, 6, 7]
+        part: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,7 +28,7 @@ jobs:
           from mmscanner import trendlines
           open("cibles.json", "wb").write(trendlines._boite().decrypt(open("analyse_cibles.enc", "rb").read()))
           PY
-          python outils/collecte_bougies.py ${{ matrix.part }} 8
+          python outils/collecte_bougies.py ${{ matrix.part }} 14
           python - <<'PY'
           import io, tarfile
           from mmscanner import trendlines
