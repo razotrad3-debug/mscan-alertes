@@ -61,8 +61,15 @@ def one_scan() -> int:
     # photos de soldes : garde le Whale Flow alimente meme sans l'interface
     try:
         from mmscanner import holder_flow
+        connus = set(holder_flow.reperes())
+        nouveaux = []
         for p in holder_flow.a_photographier(pairs):
-            holder_flow.snapshot(p.mint, p.price_usd, symbol=p.symbol or "")
+            if holder_flow.snapshot(p.mint, p.price_usd, symbol=p.symbol or "")                     and p.mint not in connus:
+                nouveaux.append(p)
+        # premiere photo d'un coin que le scan n'a pas annonce : s'il a deja
+        # des holders solides, il part quand meme (voir notify_verts)
+        if nouveaux:
+            sent += tg.notify_verts(nouveaux)
     except Exception as e:
         print(f"[flow] {e}")
 

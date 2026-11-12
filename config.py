@@ -266,6 +266,12 @@ ALERT_PULLBACK = False
 # sur 9 et 4 x3 sur 16. Les achats des traders suivis partent toujours.
 ALERT_POTENTIEL_FAIBLE = False
 
+# Coins que le scan ne retient pas (note ou phase) mais dont les holders sont
+# solides des la premiere photo : 11 % de x5 dans l'etude du 11/11/2026, autant
+# que les alertes du scan. Actives le 12/11/2026 a la demande de l'utilisateur.
+ALERT_VERTS = True
+ALERT_VERTS_MAX_JOUR = 10
+
 # ── Decouverte automatique des smart wallets ──────────────
 # Le scanner relance tout seul la chasse aux smart wallets sur les coins qui
 # viennent de percer : la watchlist se met a jour sans intervention.

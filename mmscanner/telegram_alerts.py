@@ -397,6 +397,79 @@ def _noter_fabrique(p, raison: str, fichier: str = "_fabriques.json") -> None:
         print(f"[profil] trace : {e}")
 
 
+def notify_verts(pairs: List) -> int:
+    """
+    Les coins que le scan n'a pas annonces, mais dont la PREMIERE photo
+    montre des holders solides (Potentiel eleve).
+
+    Etude du 11/11/2026 : parmi les coins vus sans alerte, ceux-la ont fait
+    x5 dans 11 % des cas — autant que les alertes du scan. Le jugement porte
+    sur la premiere photo, comme dans l'etude : c'est la qu'il a ete mesure.
+    """
+    from mmscanner import silence as _sil
+    if not getattr(config, "ALERT_VERTS", False):
+        return 0
+    if _sil.muet("coins") or not enabled() or not alerts_enabled():
+        return 0
+    sent = _load()
+    now = time.time()
+    aujourdhui = time.strftime("%Y-%m-%d", time.localtime(now))
+    compte = sent.get("_verts") if isinstance(sent.get("_verts"), dict) else {}
+    # « date » et non « jour » : ce compteur n'est pas une alerte, et la liste
+    # du jour ne retient que les entrees qui ont un « jour »
+    if compte.get("date") != aujourdhui:
+        compte = {"date": aujourdhui, "n": 0}
+    compte["at"] = now                     # sinon la purge des 7 jours l'efface
+    maxi = int(getattr(config, "ALERT_VERTS_MAX_JOUR", 10))
+    n = 0
+    for p in pairs:
+        if compte["n"] >= maxi:
+            break
+        if (getattr(p, "chain", "") or "solana") != "solana":
+            continue
+        if deja_alerte(p.mint):
+            continue
+        try:
+            from mmscanner import profil
+            jug = profil.juger(p)
+        except Exception as e:
+            print(f"[verts] {e}")
+            continue
+        if jug.get("fabrique"):
+            _noter_fabrique(p, jug["fabrique"])
+            continue
+        if jug.get("potentiel") != "eleve":
+            continue
+        try:
+            p.profil = jug
+            p.h_mediane = jug.get("mediane")
+            p.h_part_100_1k = jug.get("part_100_1k")
+            p.h_profil = jug.get("holders") or None
+        except Exception:
+            pass
+        lignes = format_alert(p).split(chr(10))
+        # sous la note : pourquoi ce coin arrive alors que le scan l'a ecarte
+        i = next((k for k, l in enumerate(lignes) if "Potentiel" in l), 2)
+        lignes.insert(i + 1, "_Repéré par ses holders, hors sélection du scan_")
+        if send(chr(10).join(lignes)):
+            sent[p.mint] = {"at": now, "jour": aujourdhui, "grade": p.grade,
+                            "symbol": p.symbol, "chain": p.chain, "verts": True}
+            compte["n"] += 1
+            n += 1
+            try:
+                from mmscanner import journal
+                journal.noter(p, "holders")
+            except Exception:
+                pass
+            time.sleep(0.4)
+    sent["_verts"] = compte
+    _save(sent)
+    if n:
+        publier_jour()
+        print(f"[verts] {n} coin(s) a holders solides envoye(s)")
+    return n
+
+
 def notify_new(pairs: List, grades=None) -> int:
     """
     Alerte les paires du grade voulu, au plus une fois toutes les 12 h.
