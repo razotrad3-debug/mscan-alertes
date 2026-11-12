@@ -260,6 +260,12 @@ ALERT_PHASES = ("Compressing", "Retest", "Watch")
 # Coupees : la veille tourne toujours pour l'interface, rien ne part sur Telegram.
 ALERT_PULLBACK = False
 
+# Alertes sur les coins a « Potentiel faible » (holders faibles, voir
+# profil.py) : coupees a la demande de l'utilisateur le 12/11/2026. Sur les
+# alertes passees, cela retire environ un tiers des envois pour 1 gagnant x5
+# sur 9 et 4 x3 sur 16. Les achats des traders suivis partent toujours.
+ALERT_POTENTIEL_FAIBLE = False
+
 # ── Decouverte automatique des smart wallets ──────────────
 # Le scanner relance tout seul la chasse aux smart wallets sur les coins qui
 # viennent de percer : la watchlist se met a jour sans intervention.

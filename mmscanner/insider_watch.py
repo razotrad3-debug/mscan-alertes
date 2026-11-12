@@ -250,6 +250,11 @@ def poll(log=print, amorcage: bool = False) -> int:
             log(f"[insider] {c.get('symbol')} ecarte, coin fabrique : {jug['fabrique']}")
             vu[c["mint"]] = {"at": maintenant, "par": c["par"], "fabrique": True}
             continue
+        if (jug.get("potentiel") == "faible"
+                and not getattr(config, "ALERT_POTENTIEL_FAIBLE", True)):
+            log(f"[insider] {c.get('symbol')} ecarte : potentiel faible")
+            vu[c["mint"]] = {"at": maintenant, "par": c["par"], "faible": True}
+            continue
         c["h_profil"] = jug.get("holders") or ""
         if tg.send(_format(c)):
             vu[c["mint"]] = {"at": maintenant, "par": c["par"]}

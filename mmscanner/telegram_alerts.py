@@ -367,7 +367,7 @@ def format_alert(p) -> str:
 _FABRIQUES_VUS = set()
 
 
-def _noter_fabrique(p, raison: str) -> None:
+def _noter_fabrique(p, raison: str, fichier: str = "_fabriques.json") -> None:
     """Garde la trace des coins ecartes, pour pouvoir verifier le filtre.
 
     Le fichier vit dans flow_snapshots/ : ce dossier est deja dans la memoire
@@ -377,9 +377,9 @@ def _noter_fabrique(p, raison: str) -> None:
     if p.mint in _FABRIQUES_VUS:
         return
     _FABRIQUES_VUS.add(p.mint)
-    print(f"[profil] {p.symbol} ecarte, coin fabrique : {raison}")
+    print(f"[profil] {p.symbol} ecarte : {raison}")
     try:
-        chemin = os.path.join(config.SNAPSHOT_DIR, "_fabriques.json")
+        chemin = os.path.join(config.SNAPSHOT_DIR, fichier)
         os.makedirs(config.SNAPSHOT_DIR, exist_ok=True)
         try:
             with open(chemin, "r", encoding="utf-8") as f:
@@ -467,6 +467,13 @@ def notify_new(pairs: List, grades=None) -> int:
         if jug.get("fabrique"):
             supprimees += 1
             _noter_fabrique(p, jug["fabrique"])
+            continue
+        # potentiel faible : coupe sur demande (voir config). La trace reste,
+        # pour verifier plus tard ce que ces coins sont devenus.
+        if (jug.get("potentiel") == "faible"
+                and not getattr(config, "ALERT_POTENTIEL_FAIBLE", True)):
+            supprimees += 1
+            _noter_fabrique(p, "potentiel faible", "_faibles.json")
             continue
         try:
             p.profil = jug
