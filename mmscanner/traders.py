@@ -39,8 +39,7 @@ SURVEILLES: List[tuple] = [
 
     ("0xf4a3a96b0f42f9b7d6d2b15186fb8b2c296dea37", "theveeeemam"),
 
-    ("DyXg3Xp6BoMq5K6Nmdb7hEzPMpkRWH2aXHHZhUgN1gd6", "Iruletrenches"),
-    ("0xddd462bb053b57d5d73c9615e11a7284cfee9233", "Iruletrenches"),
+    # Iruletrenches retire le 12/11/2026, a la demande de l'utilisateur
 ]
 
 # Traders qu'on veut suivre mais dont l'adresse est encore inconnue.
